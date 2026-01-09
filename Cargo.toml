@@ -5,8 +5,10 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.17.3"
+cpal = "0.17.1"
 
 midly = "0.5.3"
 oxisynth = "0.1.0"
+rfd = "0.17.1"
 serde = "1.0.228"
 toml = "0.9.11"
