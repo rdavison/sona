@@ -1,5 +1,7 @@
 use bevy::prelude::*;
+use bevy::tasks::IoTaskPool;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use futures_lite::future;
 use midly::{Smf, TrackEventKind};
 use oxisynth::{MidiEvent, SoundFont, Synth};
 use rfd::FileDialog;
@@ -11,10 +13,12 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 fn main() {
+    println!("Starting Sona...");
     let (cmd_tx, cmd_rx) = channel::<AudioCommand>();
 
     // Start audio thread
     thread::spawn(move || {
+        println!("Audio thread spawned.");
         audio_thread(cmd_rx);
     });
 
@@ -35,7 +39,12 @@ fn main() {
         .add_systems(Startup, (setup_ui, load_keybindings))
         .add_systems(
             Update,
-            (keyboard_navigation, update_selection_visuals, handle_input),
+            (
+                keyboard_navigation,
+                update_selection_visuals,
+                handle_input,
+                poll_file_dialogs,
+            ),
         )
         .run();
 }
@@ -113,6 +122,7 @@ fn str_to_keycode(s: &str) -> Option<KeyCode> {
 }
 
 fn load_keybindings(mut keybindings: ResMut<Keybindings>) {
+    println!("Loading keybindings...");
     if let Ok(content) = std::fs::read_to_string("keybindings.toml") {
         if let Ok(config) = toml::from_str::<Keybindings>(&content) {
             *keybindings = config;
@@ -125,7 +135,6 @@ fn load_keybindings(mut keybindings: ResMut<Keybindings>) {
     }
 }
 
-// Marker components for UI elements
 #[derive(Component)]
 struct MidiFileText;
 
@@ -144,7 +153,11 @@ struct RewindButton;
 #[derive(Component)]
 struct PlaybackStatusText;
 
+#[derive(Component)]
+struct FileDialogTask(bevy::tasks::Task<Option<PathBuf>>, UiSelection);
+
 fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
+    println!("Setting up UI...");
     commands.spawn(Camera2d::default());
 
     let font = asset_server.load("PixelifySans-Regular.ttf");
@@ -159,102 +172,105 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::srgb(0.0, 0.0, 0.5)), // ZSNES Blue
+            BackgroundColor(Color::srgb(0.0, 0.0, 0.5)),
         ))
         .with_children(|parent| {
-            // Main Window Container
-            parent.spawn((
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    padding: UiRect::all(Val::Px(20.0)),
-                    border: UiRect::all(Val::Px(2.0)),
-                    ..default()
-                },
-                BackgroundColor(Color::srgb(0.0, 0.0, 0.7)),
-                BorderColor::all(Color::WHITE),
-            )).with_children(|parent| {
-                // Status bar
-                parent.spawn((
-                    Text::new("Status: Stopped"),
-                    TextFont {
-                        font: font.clone(),
-                        font_size: 30.0,
+            parent
+                .spawn((
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        padding: UiRect::all(Val::Px(20.0)),
+                        border: UiRect::all(Val::Px(2.0)),
                         ..default()
                     },
-                    TextColor(Color::srgb(0.8, 0.8, 0.8)),
-                    PlaybackStatusText,
-                ));
+                    BackgroundColor(Color::srgb(0.0, 0.0, 0.7)),
+                    BorderColor::all(Color::WHITE),
+                ))
+                .with_children(|parent| {
+                    parent.spawn((
+                        Text::new("Status: Stopped"),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 30.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                        PlaybackStatusText,
+                    ));
 
-                // Spacer
-                parent.spawn((Node { height: Val::Px(20.0), ..default() },));
-
-                // File Selectors
-                parent.spawn((
-                    Text::new("MIDI File: [None]"),
-                    TextFont {
-                        font: font.clone(),
-                        font_size: 40.0,
+                    parent.spawn((Node {
+                        height: Val::Px(20.0),
                         ..default()
-                    },
-                    TextColor(Color::WHITE),
-                    MidiFileText,
-                ));
+                    },));
 
-                parent.spawn((
-                    Text::new("SoundFont: [None]"),
-                    TextFont {
-                        font: font.clone(),
-                        font_size: 40.0,
+                    parent.spawn((
+                        Text::new("MIDI File: [None]"),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 40.0,
+                            ..default()
+                        },
+                        TextColor(Color::WHITE),
+                        MidiFileText,
+                    ));
+
+                    parent.spawn((
+                        Text::new("SoundFont: [None]"),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 40.0,
+                            ..default()
+                        },
+                        TextColor(Color::WHITE),
+                        SoundFontText,
+                    ));
+
+                    parent.spawn((Node {
+                        height: Val::Px(20.0),
                         ..default()
-                    },
-                    TextColor(Color::WHITE),
-                    SoundFontText,
-                ));
+                    },));
 
-                // Spacer
-                parent.spawn((Node { height: Val::Px(20.0), ..default() },));
-
-                // Playback Controls
-                parent
-                    .spawn((Node {
-                        flex_direction: FlexDirection::Row,
-                        column_gap: Val::Px(20.0),
-                        ..default()
-                    },))
-                    .with_children(|parent| {
-                        parent.spawn((
-                            Text::new("[ Play ]"),
-                            TextFont {
-                                font: font.clone(),
-                                font_size: 40.0,
-                                ..default()
-                            },
-                            TextColor(Color::WHITE),
-                            PlayButton,
-                        ));
-                        parent.spawn((
-                            Text::new("[ Stop ]"),
-                            TextFont {
-                                font: font.clone(),
-                                font_size: 40.0,
-                                ..default()
-                            },
-                            TextColor(Color::WHITE),
-                            StopButton,
-                        ));
-                        parent.spawn((
-                            Text::new("[ Rewind ]"),
-                            TextFont {
-                                font: font.clone(),
-                                font_size: 40.0,
-                                ..default()
-                            },
-                            TextColor(Color::WHITE),
-                            RewindButton,
-                        ));
-                    });
-            });
+                    parent
+                        .spawn((Node {
+                            flex_direction: FlexDirection::Row,
+                            column_gap: Val::Px(20.0),
+                            ..default()
+                        },))
+                        .with_children(|parent| {
+                            parent.spawn((
+                                Text::new("[ Play ]"),
+                                TextFont {
+                                    font: font.clone(),
+                                    font_size: 40.0,
+                                    ..default()
+                                },
+                                TextColor(Color::WHITE),
+                                PlayButton,
+                            ));
+                            parent.spawn((
+                                Text::new("[ Stop ]"),
+                                TextFont {
+                                    font: font.clone(),
+                                    font_size: 40.0,
+                                    ..default()
+                                },
+                                TextColor(Color::WHITE),
+                                StopButton,
+                            ));
+                            parent.spawn((
+                                Text::new("[ Rewind ]"),
+                                TextFont {
+                                    font: font.clone(),
+                                    font_size: 40.0,
+                                    ..default()
+                                },
+                                TextColor(Color::WHITE),
+                                RewindButton,
+                            ));
+                        });
+                });
         });
+    println!("UI setup complete.");
 }
 
 fn keyboard_navigation(
@@ -268,24 +284,28 @@ fn keyboard_navigation(
     let right = keybindings.get_keycode("NavigateRight").unwrap_or(KeyCode::ArrowRight);
 
     if keyboard_input.just_pressed(down) {
+        println!("Key: Down");
         ui_state.selection = match ui_state.selection {
             UiSelection::MidiFile => UiSelection::SoundFont,
             UiSelection::SoundFont => UiSelection::Play,
             _ => ui_state.selection,
         };
     } else if keyboard_input.just_pressed(up) {
+        println!("Key: Up");
         ui_state.selection = match ui_state.selection {
             UiSelection::SoundFont => UiSelection::MidiFile,
             UiSelection::Play | UiSelection::Stop | UiSelection::Rewind => UiSelection::SoundFont,
             _ => ui_state.selection,
         };
     } else if keyboard_input.just_pressed(right) {
+        println!("Key: Right");
         ui_state.selection = match ui_state.selection {
             UiSelection::Play => UiSelection::Stop,
             UiSelection::Stop => UiSelection::Rewind,
             _ => ui_state.selection,
         };
     } else if keyboard_input.just_pressed(left) {
+        println!("Key: Left");
         ui_state.selection = match ui_state.selection {
             UiSelection::Rewind => UiSelection::Stop,
             UiSelection::Stop => UiSelection::Play,
@@ -295,10 +315,11 @@ fn keyboard_navigation(
 }
 
 fn handle_input(
+    mut commands: Commands,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     ui_state: Res<UiState>,
-    mut midi_path: ResMut<MidiFilePath>,
-    mut soundfont_path: ResMut<SoundFontPath>,
+    midi_path: Res<MidiFilePath>,
+    soundfont_path: Res<SoundFontPath>,
     mut playback_status: ResMut<PlaybackStatus>,
     audio_tx: Res<AudioSender>,
     keybindings: Res<Keybindings>,
@@ -308,29 +329,30 @@ fn handle_input(
     let stop_key = keybindings.get_keycode("Stop").unwrap_or(KeyCode::KeyS);
 
     if keyboard_input.just_pressed(select_key) {
+        println!("Key: Select");
         match ui_state.selection {
             UiSelection::MidiFile => {
-                if let Some(path) = FileDialog::new()
-                    .add_filter("MIDI", &["mid", "midi"])
-                    .pick_file()
-                {
-                    midi_path.0 = Some(path);
-                }
+                let thread_pool = IoTaskPool::get();
+                let task = thread_pool.spawn(async move {
+                    FileDialog::new()
+                        .add_filter("MIDI", &["mid", "midi"])
+                        .pick_file()
+                });
+                commands.spawn(FileDialogTask(task, UiSelection::MidiFile));
             }
             UiSelection::SoundFont => {
-                if let Some(path) = FileDialog::new()
-                    .add_filter("SoundFont", &["sf2"])
-                    .pick_file()
-                {
-                    soundfont_path.0 = Some(path);
-                }
+                let thread_pool = IoTaskPool::get();
+                let task = thread_pool.spawn(async move {
+                    FileDialog::new()
+                        .add_filter("SoundFont", &["sf2"])
+                        .pick_file()
+                });
+                commands.spawn(FileDialogTask(task, UiSelection::SoundFont));
             }
             UiSelection::Play => {
                 if let (Some(midi), Some(sf)) = (&midi_path.0, &soundfont_path.0) {
                     playback_status.state = PlaybackState::Playing;
-                    let _ = audio_tx
-                        .0
-                        .send(AudioCommand::Play(midi.clone(), sf.clone()));
+                    let _ = audio_tx.0.send(AudioCommand::Play(midi.clone(), sf.clone()));
                 }
             }
             UiSelection::Stop => {
@@ -354,6 +376,27 @@ fn handle_input(
     if keyboard_input.just_pressed(stop_key) {
         playback_status.state = PlaybackState::Stopped;
         let _ = audio_tx.0.send(AudioCommand::Stop);
+    }
+}
+
+fn poll_file_dialogs(
+    mut commands: Commands,
+    mut tasks: Query<(Entity, &mut FileDialogTask)>,
+    mut midi_path: ResMut<MidiFilePath>,
+    mut soundfont_path: ResMut<SoundFontPath>,
+) {
+    for (entity, mut task) in &mut tasks {
+        if let Some(result) = future::block_on(future::poll_once(&mut task.0)) {
+            println!("File dialog result received.");
+            if let Some(path) = result {
+                match task.1 {
+                    UiSelection::MidiFile => midi_path.0 = Some(path),
+                    UiSelection::SoundFont => soundfont_path.0 = Some(path),
+                    _ => {}
+                }
+            }
+            commands.entity(entity).despawn();
+        }
     }
 }
 
@@ -402,6 +445,7 @@ fn update_selection_visuals(
             Without<MidiFileText>,
             Without<SoundFontText>,
             Without<PlayButton>,
+            Without<StopButton>,
             Without<RewindButton>,
             Without<PlaybackStatusText>,
         ),
@@ -414,6 +458,7 @@ fn update_selection_visuals(
             Without<SoundFontText>,
             Without<PlayButton>,
             Without<StopButton>,
+            Without<RewindButton>,
             Without<PlaybackStatusText>,
         ),
     >,
@@ -429,7 +474,7 @@ fn update_selection_visuals(
         ),
     >,
 ) {
-    let selected_color = Color::srgb(1.0, 1.0, 0.0); // Yellow
+    let selected_color = Color::srgb(1.0, 1.0, 0.0);
     let default_color = Color::WHITE;
 
     for (mut color, mut text) in &mut midi_query {
@@ -484,6 +529,7 @@ struct MidiPlaybackEvent {
 }
 
 fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
+    println!("Audio thread: Initializing CPAL...");
     let host = cpal::default_host();
     let device = host
         .default_output_device()
@@ -492,6 +538,7 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
 
     let sample_rate = config.sample_rate();
     let channels = config.channels() as usize;
+    println!("Audio thread: Sample rate: {:?}, Channels: {}", sample_rate, channels);
 
     let synth = Arc::new(Mutex::new(Synth::default()));
     synth.lock().unwrap().set_sample_rate(sample_rate as f32);
@@ -501,26 +548,27 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
     let is_playing = Arc::new(Mutex::new(false));
     let ticks_per_sample = Arc::new(Mutex::new(0.0f64));
 
-    // Clones for the audio callback
     let synth_clone_cb = Arc::clone(&synth);
     let playback_events_clone_cb = Arc::clone(&playback_events);
     let samples_played_clone_cb = Arc::clone(&samples_played);
     let is_playing_clone_cb = Arc::clone(&is_playing);
     let ticks_per_sample_clone_cb = Arc::clone(&ticks_per_sample);
 
+    println!("Audio thread: Building output stream...");
     let stream = device
         .build_output_stream(
             &config.into(),
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                let mut synth = synth_clone_cb.lock().unwrap();
-                let mut events = playback_events_clone_cb.lock().unwrap();
-                let mut samples_count = samples_played_clone_cb.lock().unwrap();
-                let playing = *is_playing_clone_cb.lock().unwrap();
-                let tps = *ticks_per_sample_clone_cb.lock().unwrap();
+                let Ok(mut synth) = synth_clone_cb.try_lock() else { return; };
+                let Ok(mut events) = playback_events_clone_cb.try_lock() else { return; };
+                let Ok(mut samples_count) = samples_played_clone_cb.try_lock() else { return; };
+                let Ok(playing_guard) = is_playing_clone_cb.try_lock() else { return; };
+                let playing = *playing_guard;
+                let Ok(tps_guard) = ticks_per_sample_clone_cb.try_lock() else { return; };
+                let tps = *tps_guard;
 
                 for frame in data.chunks_mut(channels) {
                     if playing {
-                        // Trigger events for the current tick
                         let current_tick = (*samples_count as f64 * tps) as u64;
                         while !events.is_empty() && events[0].tick <= current_tick {
                             let ev = events.remove(0);
@@ -546,27 +594,26 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
         .unwrap();
 
     stream.play().unwrap();
+    println!("Audio thread: Stream started.");
 
     loop {
         if let Ok(cmd) = cmd_rx.recv() {
             match cmd {
                 AudioCommand::Play(midi_path, sf_path) => {
-                    // Stop current playback
+                    println!("Audio thread: Play command received.");
                     *is_playing.lock().unwrap() = false;
 
-                    // Load SoundFont
                     if let Ok(mut file) = std::fs::File::open(sf_path) {
                         if let Ok(font) = SoundFont::load(&mut file) {
                             let mut s = synth.lock().unwrap();
                             s.add_font(font, true);
+                            println!("Audio thread: SoundFont loaded.");
                         }
                     }
 
-                    // Parse MIDI
                     if let Ok(data) = std::fs::read(midi_path) {
                         if let Ok(smf) = Smf::parse(&data) {
                             let timing = smf.header.timing;
-
                             let mut all_events = Vec::new();
                             for track in smf.tracks {
                                 let mut current_tick = 0u64;
@@ -625,7 +672,7 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
                             }
                             all_events.sort_by_key(|e| e.tick);
 
-                            let bpm = 120.0; // Default BPM
+                            let bpm = 120.0;
                             let tpb = match timing {
                                 midly::Timing::Metrical(ticks) => ticks.as_int() as f64,
                                 _ => 480.0,
@@ -638,17 +685,18 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
                             *playback_events.lock().unwrap() = all_events;
                             *samples_played.lock().unwrap() = 0;
                             *is_playing.lock().unwrap() = true;
+                            println!("Audio thread: MIDI parsed and playback started.");
                         }
                     }
                 }
                 AudioCommand::Stop => {
+                    println!("Audio thread: Stop command received.");
                     *is_playing.lock().unwrap() = false;
                 }
                 AudioCommand::Rewind => {
+                    println!("Audio thread: Rewind command received.");
                     *is_playing.lock().unwrap() = false;
                     *samples_played.lock().unwrap() = 0;
-                    // Resetting events would require reloading MIDI or keeping a copy.
-                    // For now, simple stop and reset count is a start.
                 }
             }
         }

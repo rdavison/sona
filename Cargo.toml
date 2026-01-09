@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 bevy = "0.17.3"
 cpal = "0.17.1"
+futures-lite = "2.6.1"
 
 midly = "0.5.3"
 oxisynth = "0.1.0"
