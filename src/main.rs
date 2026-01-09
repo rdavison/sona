@@ -3,6 +3,8 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use midly::{Smf, TrackEventKind};
 use oxisynth::{MidiEvent, SoundFont, Synth};
 use rfd::FileDialog;
+use serde::Deserialize;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -17,13 +19,20 @@ fn main() {
     });
 
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Sona - Retro MIDI Player".to_string(),
+                ..default()
+            }),
+            ..default()
+        }))
         .insert_resource(AudioSender(cmd_tx))
         .init_resource::<UiState>()
         .init_resource::<MidiFilePath>()
         .init_resource::<SoundFontPath>()
         .init_resource::<PlaybackStatus>()
-        .add_systems(Startup, setup_ui)
+        .init_resource::<Keybindings>()
+        .add_systems(Startup, (setup_ui, load_keybindings))
         .add_systems(
             Update,
             (keyboard_navigation, update_selection_visuals, handle_input),
@@ -34,6 +43,7 @@ fn main() {
 enum AudioCommand {
     Play(PathBuf, PathBuf),
     Stop,
+    Rewind,
 }
 
 #[derive(Resource)]
@@ -73,6 +83,48 @@ struct PlaybackStatus {
     state: PlaybackState,
 }
 
+#[derive(Resource, Default, Deserialize)]
+struct Keybindings {
+    bindings: HashMap<String, String>,
+}
+
+impl Keybindings {
+    fn get_keycode(&self, action: &str) -> Option<KeyCode> {
+        self.bindings.get(action).and_then(|s| str_to_keycode(s))
+    }
+}
+
+fn str_to_keycode(s: &str) -> Option<KeyCode> {
+    match s.to_lowercase().as_str() {
+        "up" | "arrowup" => Some(KeyCode::ArrowUp),
+        "down" | "arrowdown" => Some(KeyCode::ArrowDown),
+        "left" | "arrowleft" => Some(KeyCode::ArrowLeft),
+        "right" | "arrowright" => Some(KeyCode::ArrowRight),
+        "enter" | "return" => Some(KeyCode::Enter),
+        "space" => Some(KeyCode::Space),
+        "tab" => Some(KeyCode::Tab),
+        "backspace" => Some(KeyCode::Backspace),
+        "escape" | "esc" => Some(KeyCode::Escape),
+        "p" => Some(KeyCode::KeyP),
+        "s" => Some(KeyCode::KeyS),
+        "t" => Some(KeyCode::KeyT),
+        _ => None,
+    }
+}
+
+fn load_keybindings(mut keybindings: ResMut<Keybindings>) {
+    if let Ok(content) = std::fs::read_to_string("keybindings.toml") {
+        if let Ok(config) = toml::from_str::<Keybindings>(&content) {
+            *keybindings = config;
+            println!("Keybindings loaded successfully.");
+        } else {
+            eprintln!("Failed to parse keybindings.toml");
+        }
+    } else {
+        eprintln!("Failed to read keybindings.toml");
+    }
+}
+
 // Marker components for UI elements
 #[derive(Component)]
 struct MidiFileText;
@@ -107,106 +159,133 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::srgb(0.1, 0.1, 0.1)),
+            BackgroundColor(Color::srgb(0.0, 0.0, 0.5)), // ZSNES Blue
         ))
         .with_children(|parent| {
-            // Status bar
+            // Main Window Container
             parent.spawn((
-                Text::new("Status: Stopped"),
-                TextFont {
-                    font: font.clone(),
-                    font_size: 30.0,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(20.0)),
+                    border: UiRect::all(Val::Px(2.0)),
                     ..default()
                 },
-                TextColor(Color::srgb(0.7, 0.7, 0.7)),
-                PlaybackStatusText,
-            ));
+                BackgroundColor(Color::srgb(0.0, 0.0, 0.7)),
+                BorderColor::all(Color::WHITE),
+            )).with_children(|parent| {
+                // Status bar
+                parent.spawn((
+                    Text::new("Status: Stopped"),
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 30.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                    PlaybackStatusText,
+                ));
 
-            // File Selectors
-            parent.spawn((
-                Text::new("MIDI File: [None]"),
-                TextFont {
-                    font: font.clone(),
-                    font_size: 40.0,
-                    ..default()
-                },
-                TextColor(Color::WHITE),
-                MidiFileText,
-            ));
+                // Spacer
+                parent.spawn((Node { height: Val::Px(20.0), ..default() },));
 
-            parent.spawn((
-                Text::new("SoundFont: [None]"),
-                TextFont {
-                    font: font.clone(),
-                    font_size: 40.0,
-                    ..default()
-                },
-                TextColor(Color::WHITE),
-                SoundFontText,
-            ));
+                // File Selectors
+                parent.spawn((
+                    Text::new("MIDI File: [None]"),
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 40.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    MidiFileText,
+                ));
 
-            // Playback Controls
-            parent
-                .spawn((Node {
-                    flex_direction: FlexDirection::Row,
-                    margin: UiRect::top(Val::Px(20.0)),
-                    ..default()
-                },))
-                .with_children(|parent| {
-                    parent.spawn((
-                        Text::new("[ Play ]"),
-                        TextFont {
-                            font: font.clone(),
-                            font_size: 40.0,
-                            ..default()
-                        },
-                        TextColor(Color::WHITE),
-                        PlayButton,
-                    ));
-                    parent.spawn((
-                        Text::new("[ Stop ]"),
-                        TextFont {
-                            font: font.clone(),
-                            font_size: 40.0,
-                            ..default()
-                        },
-                        TextColor(Color::WHITE),
-                        StopButton,
-                    ));
-                    parent.spawn((
-                        Text::new("[ Rewind ]"),
-                        TextFont {
-                            font: font.clone(),
-                            font_size: 40.0,
-                            ..default()
-                        },
-                        TextColor(Color::WHITE),
-                        RewindButton,
-                    ));
-                });
+                parent.spawn((
+                    Text::new("SoundFont: [None]"),
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 40.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    SoundFontText,
+                ));
+
+                // Spacer
+                parent.spawn((Node { height: Val::Px(20.0), ..default() },));
+
+                // Playback Controls
+                parent
+                    .spawn((Node {
+                        flex_direction: FlexDirection::Row,
+                        column_gap: Val::Px(20.0),
+                        ..default()
+                    },))
+                    .with_children(|parent| {
+                        parent.spawn((
+                            Text::new("[ Play ]"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 40.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            PlayButton,
+                        ));
+                        parent.spawn((
+                            Text::new("[ Stop ]"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 40.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            StopButton,
+                        ));
+                        parent.spawn((
+                            Text::new("[ Rewind ]"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 40.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            RewindButton,
+                        ));
+                    });
+            });
         });
 }
 
-fn keyboard_navigation(mut ui_state: ResMut<UiState>, keyboard_input: Res<ButtonInput<KeyCode>>) {
-    if keyboard_input.just_pressed(KeyCode::ArrowDown) {
+fn keyboard_navigation(
+    mut ui_state: ResMut<UiState>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    keybindings: Res<Keybindings>,
+) {
+    let up = keybindings.get_keycode("NavigateUp").unwrap_or(KeyCode::ArrowUp);
+    let down = keybindings.get_keycode("NavigateDown").unwrap_or(KeyCode::ArrowDown);
+    let left = keybindings.get_keycode("NavigateLeft").unwrap_or(KeyCode::ArrowLeft);
+    let right = keybindings.get_keycode("NavigateRight").unwrap_or(KeyCode::ArrowRight);
+
+    if keyboard_input.just_pressed(down) {
         ui_state.selection = match ui_state.selection {
             UiSelection::MidiFile => UiSelection::SoundFont,
             UiSelection::SoundFont => UiSelection::Play,
             _ => ui_state.selection,
         };
-    } else if keyboard_input.just_pressed(KeyCode::ArrowUp) {
+    } else if keyboard_input.just_pressed(up) {
         ui_state.selection = match ui_state.selection {
             UiSelection::SoundFont => UiSelection::MidiFile,
             UiSelection::Play | UiSelection::Stop | UiSelection::Rewind => UiSelection::SoundFont,
             _ => ui_state.selection,
         };
-    } else if keyboard_input.just_pressed(KeyCode::ArrowRight) {
+    } else if keyboard_input.just_pressed(right) {
         ui_state.selection = match ui_state.selection {
             UiSelection::Play => UiSelection::Stop,
             UiSelection::Stop => UiSelection::Rewind,
             _ => ui_state.selection,
         };
-    } else if keyboard_input.just_pressed(KeyCode::ArrowLeft) {
+    } else if keyboard_input.just_pressed(left) {
         ui_state.selection = match ui_state.selection {
             UiSelection::Rewind => UiSelection::Stop,
             UiSelection::Stop => UiSelection::Play,
@@ -222,8 +301,13 @@ fn handle_input(
     mut soundfont_path: ResMut<SoundFontPath>,
     mut playback_status: ResMut<PlaybackStatus>,
     audio_tx: Res<AudioSender>,
+    keybindings: Res<Keybindings>,
 ) {
-    if keyboard_input.just_pressed(KeyCode::Enter) {
+    let select_key = keybindings.get_keycode("Select").unwrap_or(KeyCode::Enter);
+    let play_key = keybindings.get_keycode("Play").unwrap_or(KeyCode::KeyP);
+    let stop_key = keybindings.get_keycode("Stop").unwrap_or(KeyCode::KeyS);
+
+    if keyboard_input.just_pressed(select_key) {
         match ui_state.selection {
             UiSelection::MidiFile => {
                 if let Some(path) = FileDialog::new()
@@ -255,9 +339,21 @@ fn handle_input(
             }
             UiSelection::Rewind => {
                 playback_status.state = PlaybackState::Stopped;
-                let _ = audio_tx.0.send(AudioCommand::Stop);
+                let _ = audio_tx.0.send(AudioCommand::Rewind);
             }
         }
+    }
+
+    if keyboard_input.just_pressed(play_key) {
+        if let (Some(midi), Some(sf)) = (&midi_path.0, &soundfont_path.0) {
+            playback_status.state = PlaybackState::Playing;
+            let _ = audio_tx.0.send(AudioCommand::Play(midi.clone(), sf.clone()));
+        }
+    }
+
+    if keyboard_input.just_pressed(stop_key) {
+        playback_status.state = PlaybackState::Stopped;
+        let _ = audio_tx.0.send(AudioCommand::Stop);
     }
 }
 
@@ -428,7 +524,7 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
                         let current_tick = (*samples_count as f64 * tps) as u64;
                         while !events.is_empty() && events[0].tick <= current_tick {
                             let ev = events.remove(0);
-                            synth.send_event(ev.event);
+                            let _ = synth.send_event(ev.event);
                         }
 
                         let mut samples = [0.0f32; 2];
@@ -459,93 +555,102 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
                     *is_playing.lock().unwrap() = false;
 
                     // Load SoundFont
-                    let mut file = std::fs::File::open(sf_path).unwrap();
-                    let font = SoundFont::load(&mut file).unwrap();
-                    let mut s = synth.lock().unwrap();
-                    s.add_font(font, true);
-
-                    // Parse MIDI
-                    let data = std::fs::read(midi_path).unwrap();
-                    let smf = Smf::parse(&data).unwrap();
-                    let timing = smf.header.timing;
-
-                    let mut all_events = Vec::new();
-                    for track in smf.tracks {
-                        let mut current_tick = 0u64;
-                        for event in track {
-                            current_tick += event.delta.as_int() as u64;
-                            if let TrackEventKind::Midi { channel, message } = event.kind {
-                                let ev = match message {
-                                    midly::MidiMessage::NoteOff { key, .. } => MidiEvent::NoteOff {
-                                        channel: channel.as_int() as u8,
-                                        key: key.as_int() as u8,
-                                    },
-                                    midly::MidiMessage::NoteOn { key, vel } => MidiEvent::NoteOn {
-                                        channel: channel.as_int() as u8,
-                                        key: key.as_int() as u8,
-                                        vel: vel.as_int() as u8,
-                                    },
-                                    midly::MidiMessage::Aftertouch { key, vel } => {
-                                        MidiEvent::PolyphonicKeyPressure {
-                                            channel: channel.as_int() as u8,
-                                            key: key.as_int() as u8,
-                                            value: vel.as_int() as u8,
-                                        }
-                                    }
-                                    midly::MidiMessage::Controller { controller, value } => {
-                                        MidiEvent::ControlChange {
-                                            channel: channel.as_int() as u8,
-                                            ctrl: controller.as_int() as u8,
-                                            value: value.as_int() as u8,
-                                        }
-                                    }
-                                    midly::MidiMessage::ProgramChange { program } => {
-                                        MidiEvent::ProgramChange {
-                                            channel: channel.as_int() as u8,
-                                            program_id: program.as_int() as u8,
-                                        }
-                                    }
-                                    midly::MidiMessage::ChannelAftertouch { vel } => {
-                                        MidiEvent::ChannelPressure {
-                                            channel: channel.as_int() as u8,
-                                            value: vel.as_int() as u8,
-                                        }
-                                    }
-                                    midly::MidiMessage::PitchBend { bend } => {
-                                        MidiEvent::PitchBend {
-                                            channel: channel.as_int() as u8,
-                                            value: bend.as_int() as u16,
-                                        }
-                                    }
-                                };
-                                all_events.push(MidiPlaybackEvent {
-                                    tick: current_tick,
-                                    event: ev,
-                                });
-                            }
+                    if let Ok(mut file) = std::fs::File::open(sf_path) {
+                        if let Ok(font) = SoundFont::load(&mut file) {
+                            let mut s = synth.lock().unwrap();
+                            s.add_font(font, true);
                         }
                     }
-                    all_events.sort_by_key(|e| e.tick);
 
-                    let bpm = 120.0; // Default BPM
-                    let tpb = match timing {
-                        midly::Timing::Metrical(ticks) => ticks.as_int() as f64,
-                        _ => 480.0,
-                    };
+                    // Parse MIDI
+                    if let Ok(data) = std::fs::read(midi_path) {
+                        if let Ok(smf) = Smf::parse(&data) {
+                            let timing = smf.header.timing;
 
-                    let ticks_per_second = (bpm * tpb) / 60.0;
-                    let tps = ticks_per_second / sample_rate as f64;
+                            let mut all_events = Vec::new();
+                            for track in smf.tracks {
+                                let mut current_tick = 0u64;
+                                for event in track {
+                                    current_tick += event.delta.as_int() as u64;
+                                    if let TrackEventKind::Midi { channel, message } = event.kind {
+                                        let ev = match message {
+                                            midly::MidiMessage::NoteOff { key, .. } => MidiEvent::NoteOff {
+                                                channel: channel.as_int() as u8,
+                                                key: key.as_int() as u8,
+                                            },
+                                            midly::MidiMessage::NoteOn { key, vel } => MidiEvent::NoteOn {
+                                                channel: channel.as_int() as u8,
+                                                key: key.as_int() as u8,
+                                                vel: vel.as_int() as u8,
+                                            },
+                                            midly::MidiMessage::Aftertouch { key, vel } => {
+                                                MidiEvent::PolyphonicKeyPressure {
+                                                    channel: channel.as_int() as u8,
+                                                    key: key.as_int() as u8,
+                                                    value: vel.as_int() as u8,
+                                                }
+                                            }
+                                            midly::MidiMessage::Controller { controller, value } => {
+                                                MidiEvent::ControlChange {
+                                                    channel: channel.as_int() as u8,
+                                                    ctrl: controller.as_int() as u8,
+                                                    value: value.as_int() as u8,
+                                                }
+                                            }
+                                            midly::MidiMessage::ProgramChange { program } => {
+                                                MidiEvent::ProgramChange {
+                                                    channel: channel.as_int() as u8,
+                                                    program_id: program.as_int() as u8,
+                                                }
+                                            }
+                                            midly::MidiMessage::ChannelAftertouch { vel } => {
+                                                MidiEvent::ChannelPressure {
+                                                    channel: channel.as_int() as u8,
+                                                    value: vel.as_int() as u8,
+                                                }
+                                            }
+                                            midly::MidiMessage::PitchBend { bend } => {
+                                                MidiEvent::PitchBend {
+                                                    channel: channel.as_int() as u8,
+                                                    value: bend.as_int() as u16,
+                                                }
+                                            }
+                                        };
+                                        all_events.push(MidiPlaybackEvent {
+                                            tick: current_tick,
+                                            event: ev,
+                                        });
+                                    }
+                                }
+                            }
+                            all_events.sort_by_key(|e| e.tick);
 
-                    *ticks_per_sample.lock().unwrap() = tps;
-                    *playback_events.lock().unwrap() = all_events;
-                    *samples_played.lock().unwrap() = 0;
-                    *is_playing.lock().unwrap() = true;
+                            let bpm = 120.0; // Default BPM
+                            let tpb = match timing {
+                                midly::Timing::Metrical(ticks) => ticks.as_int() as f64,
+                                _ => 480.0,
+                            };
+
+                            let ticks_per_second = (bpm * tpb) / 60.0;
+                            let tps = ticks_per_second / sample_rate as f64;
+
+                            *ticks_per_sample.lock().unwrap() = tps;
+                            *playback_events.lock().unwrap() = all_events;
+                            *samples_played.lock().unwrap() = 0;
+                            *is_playing.lock().unwrap() = true;
+                        }
+                    }
                 }
                 AudioCommand::Stop => {
                     *is_playing.lock().unwrap() = false;
+                }
+                AudioCommand::Rewind => {
+                    *is_playing.lock().unwrap() = false;
+                    *samples_played.lock().unwrap() = 0;
+                    // Resetting events would require reloading MIDI or keeping a copy.
+                    // For now, simple stop and reset count is a start.
                 }
             }
         }
     }
 }
-
