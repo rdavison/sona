@@ -1,0 +1,16 @@
+# Default keybindings for Sona
+# You can customize these by changing the key codes.
+# Supported key codes can be found in the Bevy documentation for `KeyCode`.
+# Example: "Up", "Down", "A", "B", "Space", "Enter", "Numpad5"
+
+[bindings]
+"NavigateUp" = "Up"
+"NavigateDown" = "Down"
+"NavigateLeft" = "Left"
+"NavigateRight" = "Right"
+"Select" = "Enter"
+"Play" = "P"
+"Stop" = "S"
+"FocusNext" = "Tab"
+"TextInput" = "T"
+"Backspace" = "Backspace"

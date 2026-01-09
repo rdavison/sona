@@ -1,0 +1,12 @@
+[package]
+name = "sona"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.17.3"
+
+midly = "0.5.3"
+oxisynth = "0.1.0"
+serde = "1.0.228"
+toml = "0.9.11"
