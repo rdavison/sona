@@ -35,12 +35,14 @@ impl Plugin for UiPlugin {
                     tracks::update_tracks_list,
                     tracks::update_track_ruler,
                     tracks::update_track_previews,
+                    tracks::update_tracks_scroll,
                     tracks::toggle_debug_overlay,
                     tracks::update_tracks_focus_visuals,
                     tracks::update_debug_overlay,
                 ),
             )
-            .init_resource::<tracks::DebugOverlayState>();
+            .init_resource::<tracks::DebugOverlayState>()
+            .init_resource::<tracks::TracksScroll>();
     }
 }
 

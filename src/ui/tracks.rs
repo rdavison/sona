@@ -19,6 +19,9 @@ use bevy::window::PrimaryWindow;
 pub(super) struct TracksList;
 
 #[derive(Component)]
+pub(super) struct TracksListViewport;
+
+#[derive(Component)]
 pub(super) struct TrackRow {
     index: usize,
 }
@@ -46,9 +49,44 @@ pub(super) struct DebugOverlayState {
     visible: bool,
 }
 
+#[derive(Resource, Default)]
+pub(super) struct TracksScroll {
+    offset: f32,
+}
+
 const TRACK_COL_WIDTH: f32 = 220.0;
 const EVENT_COL_WIDTH: f32 = 80.0;
 const PREVIEW_CELL_SIZE: f32 = 2.0;
+const TRACK_LABEL_FONT_SIZE: f32 = 24.0;
+
+fn max_label_chars(column_width: f32, font_size: f32) -> usize {
+    let avg_char_width = font_size * 0.6;
+    if avg_char_width <= 0.0 {
+        return 0;
+    }
+    (column_width / avg_char_width).floor().max(0.0) as usize
+}
+
+fn ellipsize_text(text: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let count = text.chars().count();
+    if count <= max_chars {
+        return text.to_string();
+    }
+    if max_chars <= 3 {
+        return ".".repeat(max_chars);
+    }
+    let mut out: String = text.chars().take(max_chars - 3).collect();
+    out.push_str("...");
+    out
+}
+
+fn clamp_scroll_offset(current: f32, delta: f32, viewport_height: f32, content_height: f32) -> f32 {
+    let max_offset = (content_height - viewport_height).max(0.0);
+    (current + delta).clamp(0.0, max_offset)
+}
 
 pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: Handle<Font>) {
     commands.entity(parent).with_children(|parent| {
@@ -186,16 +224,29 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                         ));
                                     });
                             });
-                        parent.spawn((
-                            Node {
-                                flex_direction: FlexDirection::Column,
-                                row_gap: Val::Px(6.0),
-                                flex_grow: 1.0,
-                                overflow: Overflow::clip(),
-                                ..default()
-                            },
-                            TracksList,
-                        ));
+                        parent
+                            .spawn((
+                                Node {
+                                    flex_direction: FlexDirection::Column,
+                                    flex_grow: 1.0,
+                                    overflow: Overflow::clip(),
+                                    ..default()
+                                },
+                                TracksListViewport,
+                            ))
+                            .with_children(|parent| {
+                                parent.spawn((
+                                    Node {
+                                        flex_direction: FlexDirection::Column,
+                                        row_gap: Val::Px(6.0),
+                                        position_type: PositionType::Absolute,
+                                        top: Val::Px(0.0),
+                                        width: Val::Percent(100.0),
+                                        ..default()
+                                    },
+                                    TracksList,
+                                ));
+                            });
                     });
             });
     });
@@ -262,6 +313,9 @@ pub(super) fn update_tracks_list(
                     .as_deref()
                     .filter(|value| !value.is_empty())
                     .unwrap_or("Unnamed");
+                let label = format!("[{:02}] {}", track.index + 1, name);
+                let max_chars = max_label_chars(TRACK_COL_WIDTH, TRACK_LABEL_FONT_SIZE);
+                let label = ellipsize_text(&label, max_chars);
                 parent
                     .spawn((
                         Node {
@@ -280,10 +334,10 @@ pub(super) fn update_tracks_list(
                             },))
                             .with_children(|parent| {
                                 parent.spawn((
-                                    Text::new(format!("[{:02}] {}", track.index + 1, name)),
+                                    Text::new(label),
                                     TextFont {
                                         font: font.clone(),
-                                        font_size: 24.0,
+                                        font_size: TRACK_LABEL_FONT_SIZE,
                                         ..default()
                                     },
                                     TextColor(Color::WHITE),
@@ -625,6 +679,49 @@ pub(super) fn update_track_previews(
     }
 }
 
+pub(super) fn update_tracks_scroll(
+    ui_state: Res<UiState>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut scroll: ResMut<TracksScroll>,
+    mut content_query: Query<&mut Node, With<TracksList>>,
+    viewport_query: Query<&ComputedNode, With<TracksListViewport>>,
+    content_size_query: Query<&ComputedNode, With<TracksList>>,
+) {
+    if ui_state.page != UiPage::Tracks {
+        return;
+    }
+
+    let ctrl = keyboard_input.pressed(KeyCode::ControlLeft)
+        || keyboard_input.pressed(KeyCode::ControlRight);
+    if ctrl {
+        let mut delta = 0.0;
+        if keyboard_input.just_pressed(KeyCode::KeyE) {
+            delta += 40.0;
+        }
+        if keyboard_input.just_pressed(KeyCode::KeyY) {
+            delta -= 40.0;
+        }
+        if delta != 0.0 {
+            let viewport_height = viewport_query
+                .iter()
+                .next()
+                .map(|node| node.size.y)
+                .unwrap_or(0.0);
+            let content_height = content_size_query
+                .iter()
+                .next()
+                .map(|node| node.size.y)
+                .unwrap_or(0.0);
+            scroll.offset =
+                clamp_scroll_offset(scroll.offset, delta, viewport_height, content_height);
+        }
+    }
+
+    for mut node in &mut content_query {
+        node.top = Val::Px(-scroll.offset);
+    }
+}
+
 fn build_track_preview_image_scaled(
     track: &MidiTrackInfo,
     width: u32,
@@ -661,7 +758,10 @@ fn build_track_preview_image_scaled(
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_ruler_left, preview_color, render_preview_rgba, scale_preview_cells};
+    use super::{
+        clamp_scroll_offset, compute_ruler_left, ellipsize_text, max_label_chars, preview_color,
+        render_preview_rgba, scale_preview_cells,
+    };
     use bevy::prelude::ColorToPacked;
 
     #[test]
@@ -690,5 +790,33 @@ mod tests {
     fn compute_ruler_left_clamps() {
         assert_eq!(compute_ruler_left(0.5, 100.0), 50.0);
         assert_eq!(compute_ruler_left(2.0, 10.0), 9.0);
+    }
+
+    #[test]
+    fn ellipsize_text_truncates() {
+        assert_eq!(ellipsize_text("Hello", 10), "Hello");
+        assert_eq!(ellipsize_text("Hello", 5), "Hello");
+        assert_eq!(ellipsize_text("Hello", 4), "H...");
+        assert_eq!(ellipsize_text("Hello", 3), "...");
+        assert_eq!(ellipsize_text("Hello", 2), "..");
+    }
+
+    #[test]
+    fn max_label_chars_scales_with_width() {
+        let small = max_label_chars(50.0, 20.0);
+        let large = max_label_chars(200.0, 20.0);
+        assert!(large > small);
+    }
+
+    #[test]
+    fn clamp_scroll_offset_bounds() {
+        let offset = clamp_scroll_offset(0.0, 10.0, 100.0, 50.0);
+        assert_eq!(offset, 0.0);
+        let offset = clamp_scroll_offset(0.0, 10.0, 50.0, 100.0);
+        assert_eq!(offset, 10.0);
+        let offset = clamp_scroll_offset(90.0, 20.0, 50.0, 100.0);
+        assert_eq!(offset, 50.0);
+        let offset = clamp_scroll_offset(10.0, -20.0, 50.0, 100.0);
+        assert_eq!(offset, 0.0);
     }
 }
