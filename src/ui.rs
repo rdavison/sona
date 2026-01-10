@@ -1,3 +1,4 @@
+use crate::audio::AudioState;
 use crate::state::{
     MidiFilePath, MidiTrackInfo, MidiTracks, PlaybackState, PlaybackStatus, SoundFontPath, UiPage,
     UiSelection, UiState,
@@ -5,11 +6,13 @@ use crate::state::{
 use bevy::prelude::{
     default, AlignItems, App, AssetServer, Assets, BackgroundColor, BorderColor, Camera2d, Children,
     Color, Commands, Component, DetectChanges, Display, Entity, FlexDirection, Font, Handle,
-    ColorToPacked, Image, ImageNode, JustifyContent, Node, Plugin, Query, Res, ResMut, Resource,
-    Startup, Text, TextColor, TextFont, UiRect, Update, Val, With, Without,
+    ColorToPacked, Image, ImageNode, JustifyContent, Node, Plugin, PositionType, Query, Res,
+    ResMut, Resource, Startup, Text, TextColor, TextFont, UiRect, Update, Val, With, Without,
+    ZIndex, Overflow,
 };
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::asset::RenderAssetUsages;
+use std::sync::atomic::Ordering;
 
 #[derive(Component)]
 pub struct MidiFileText;
@@ -44,6 +47,12 @@ pub struct TracksList;
 #[derive(Component)]
 pub struct TrackRow;
 
+#[derive(Component)]
+pub struct TrackRuler {
+    preview_width: usize,
+    preview_height: usize,
+}
+
 #[derive(Resource)]
 struct UiFonts {
     main: Handle<Font>,
@@ -62,6 +71,7 @@ impl Plugin for UiPlugin {
             (
                 update_page_visibility,
                 update_tracks_list,
+                update_track_ruler,
                 update_selection_visuals,
             ),
         );
@@ -547,8 +557,41 @@ fn update_tracks_list(
                             .spawn((Node {
                                 width: Val::Px(track.preview_width as f32 * PREVIEW_CELL_SIZE),
                                 height: Val::Px(track.preview_height as f32 * PREVIEW_CELL_SIZE),
+                                position_type: PositionType::Relative,
+                                overflow: Overflow::clip(),
                                 ..default()
-                            }, ImageNode::new(build_track_preview_image(track, &mut images))));
+                            },))
+                            .with_children(|parent| {
+                                parent.spawn((
+                                    Node {
+                                        position_type: PositionType::Absolute,
+                                        left: Val::Px(0.0),
+                                        top: Val::Px(0.0),
+                                        width: Val::Percent(100.0),
+                                        height: Val::Percent(100.0),
+                                        ..default()
+                                    },
+                                    ImageNode::new(build_track_preview_image(track, &mut images)),
+                                ));
+                                parent.spawn((
+                                    Node {
+                                        position_type: PositionType::Absolute,
+                                        left: Val::Px(0.0),
+                                        top: Val::Px(0.0),
+                                        width: Val::Px(2.0),
+                                        height: Val::Px(
+                                            track.preview_height as f32 * PREVIEW_CELL_SIZE,
+                                        ),
+                                        ..default()
+                                    },
+                                    BackgroundColor(Color::srgb(1.0, 1.0, 1.0)),
+                                    ZIndex(1),
+                                    TrackRuler {
+                                        preview_width: track.preview_width,
+                                        preview_height: track.preview_height,
+                                    },
+                                ));
+                            });
                     });
             }
         }
@@ -572,6 +615,34 @@ fn preview_color(intensity: u16) -> Color {
     let level = (intensity as f32).min(6.0);
     let bright = 0.25 + level * 0.12;
     Color::srgb(bright, bright * 0.9, 0.2 + level * 0.08)
+}
+
+fn update_track_ruler(
+    ui_state: Res<UiState>,
+    audio_state: Res<AudioState>,
+    mut rulers: Query<(&mut Node, &TrackRuler)>,
+) {
+    if ui_state.page != UiPage::Tracks {
+        return;
+    }
+
+    let total_samples = audio_state.total_samples.load(Ordering::Relaxed);
+    let samples_played = audio_state.samples_played.load(Ordering::Relaxed);
+
+    for (mut node, ruler) in &mut rulers {
+        if total_samples == 0 {
+            node.display = Display::None;
+            continue;
+        }
+
+        let width_px = ruler.preview_width as f32 * PREVIEW_CELL_SIZE;
+        let ratio = (samples_played as f32 / total_samples as f32).clamp(0.0, 1.0);
+        let max_left = (width_px - 1.0).max(0.0);
+        let left_px = (ratio * width_px).min(max_left);
+        node.display = Display::Flex;
+        node.left = Val::Px(left_px);
+        node.height = Val::Px(ruler.preview_height as f32 * PREVIEW_CELL_SIZE);
+    }
 }
 
 fn build_track_preview_image(track: &MidiTrackInfo, images: &mut Assets<Image>) -> Handle<Image> {

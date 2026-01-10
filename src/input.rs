@@ -421,15 +421,6 @@ fn build_track_preview(
         }
     }
 
-    for col in (0..width).step_by(32) {
-        for row in 0..height {
-            let idx = row * width + col;
-            if let Some(cell) = cells.get_mut(idx) {
-                *cell = (*cell).max(1);
-            }
-        }
-    }
-
     cells
 }
 

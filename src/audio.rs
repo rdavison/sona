@@ -3,6 +3,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use midly::{Smf, TrackEventKind};
 use oxisynth::{MidiEvent, SoundFont, Synth};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -17,19 +18,34 @@ pub enum AudioCommand {
 #[derive(Resource)]
 pub struct AudioSender(pub Sender<AudioCommand>);
 
+#[derive(Resource, Clone)]
+pub struct AudioState {
+    pub samples_played: Arc<AtomicU64>,
+    pub total_samples: Arc<AtomicU64>,
+}
+
 pub struct AudioPlugin;
 
 impl Plugin for AudioPlugin {
     fn build(&self, app: &mut App) {
         let (cmd_tx, cmd_rx) = channel::<AudioCommand>();
+        let samples_played = Arc::new(AtomicU64::new(0));
+        let total_samples = Arc::new(AtomicU64::new(0));
+        let audio_state = AudioState {
+            samples_played: Arc::clone(&samples_played),
+            total_samples: Arc::clone(&total_samples),
+        };
 
         // Start audio thread
+        let samples_played_thread = Arc::clone(&samples_played);
+        let total_samples_thread = Arc::clone(&total_samples);
         thread::spawn(move || {
             println!("Audio thread spawned.");
-            audio_thread(cmd_rx);
+            audio_thread(cmd_rx, samples_played_thread, total_samples_thread);
         });
 
         app.insert_resource(AudioSender(cmd_tx));
+        app.insert_resource(audio_state);
     }
 }
 
@@ -91,7 +107,11 @@ fn ticks_to_seconds(tick: u64, segments: &[TempoSegment], ticks_per_beat: f64) -
     active.seconds_at_tick + seconds_delta
 }
 
-fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
+fn audio_thread(
+    cmd_rx: Receiver<AudioCommand>,
+    samples_played: Arc<AtomicU64>,
+    total_samples: Arc<AtomicU64>,
+) {
     println!("Audio thread: Initializing CPAL...");
     let host = cpal::default_host();
     let device = host
@@ -110,7 +130,6 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
     synth.lock().unwrap().set_sample_rate(sample_rate as f32);
 
     let playback_events = Arc::new(Mutex::new(Vec::<MidiPlaybackEvent>::new()));
-    let samples_played = Arc::new(Mutex::new(0u64));
     let playback_index = Arc::new(Mutex::new(0usize));
     let is_playing = Arc::new(Mutex::new(false));
     let mut last_midi_path: Option<PathBuf> = None;
@@ -132,9 +151,6 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
                 let Ok(events) = playback_events_clone_cb.try_lock() else {
                     return;
                 };
-                let Ok(mut samples_count) = samples_played_clone_cb.try_lock() else {
-                    return;
-                };
                 let Ok(mut index) = playback_index_clone_cb.try_lock() else {
                     return;
                 };
@@ -144,7 +160,7 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
                 let playing = *playing_guard;
                 for frame in data.chunks_mut(channels) {
                     if playing {
-                        let current_sample = *samples_count;
+                        let current_sample = samples_played_clone_cb.load(Ordering::Relaxed);
                         while *index < events.len()
                             && events[*index].sample <= current_sample
                         {
@@ -158,7 +174,7 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
                         for (i, s) in frame.iter_mut().enumerate() {
                             *s = samples[i % 2];
                         }
-                        *samples_count += 1;
+                        samples_played_clone_cb.fetch_add(1, Ordering::Relaxed);
                     } else {
                         for s in frame.iter_mut() {
                             *s = 0.0;
@@ -286,8 +302,11 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
                                 }
 
                                 playback.sort_by_key(|e| e.sample);
+                                let final_sample =
+                                    playback.last().map(|event| event.sample).unwrap_or(0);
                                 *playback_events.lock().unwrap() = playback;
-                                *samples_played.lock().unwrap() = 0;
+                                samples_played.store(0, Ordering::Relaxed);
+                                total_samples.store(final_sample, Ordering::Relaxed);
                                 *playback_index.lock().unwrap() = 0;
                                 last_midi_path = Some(midi_path);
                                 last_soundfont_path = Some(sf_path);
@@ -308,7 +327,7 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
                 AudioCommand::Stop => {
                     println!("Audio thread: Stop command received.");
                     *is_playing.lock().unwrap() = false;
-                    *samples_played.lock().unwrap() = 0;
+                    samples_played.store(0, Ordering::Relaxed);
                     *playback_index.lock().unwrap() = 0;
                     hard_reset_synth(
                         &mut synth.lock().unwrap(),
@@ -318,7 +337,7 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
                 }
                 AudioCommand::Rewind => {
                     println!("Audio thread: Rewind command received.");
-                    *samples_played.lock().unwrap() = 0;
+                    samples_played.store(0, Ordering::Relaxed);
                     *playback_index.lock().unwrap() = 0;
                     hard_reset_synth(
                         &mut synth.lock().unwrap(),
