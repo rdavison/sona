@@ -5,11 +5,12 @@ use crate::state::{
 };
 use bevy::prelude::{
     default, AlignItems, App, AssetServer, Assets, BackgroundColor, BorderColor, Camera2d, Children,
-    Color, Commands, Component, DetectChanges, Display, Entity, FlexDirection, Font, Handle,
-    ColorToPacked, Image, ImageNode, JustifyContent, Node, Plugin, PositionType, Query, Res,
-    ResMut, Resource, Startup, Text, TextColor, TextFont, UiRect, Update, Val, With, Without,
-    ZIndex, Overflow,
+    Changed, Color, Commands, Component, ComputedNode, DetectChanges, Display, Entity,
+    FlexDirection, Font, Handle, ColorToPacked, Image, ImageNode, JustifyContent, Node,
+    NodeImageMode, Plugin, PositionType, Query, Res, ResMut, Resource, Startup, Text, TextColor,
+    TextFont, UiRect, Update, Val, With, Without, ZIndex, Overflow, ChildOf,
 };
+use bevy::image::ImageSampler;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::asset::RenderAssetUsages;
 use std::sync::atomic::Ordering;
@@ -48,9 +49,13 @@ pub struct TracksList;
 pub struct TrackRow;
 
 #[derive(Component)]
-pub struct TrackRuler {
-    preview_width: usize,
-    preview_height: usize,
+pub struct TrackRuler;
+
+#[derive(Component)]
+pub struct TrackPreview {
+    track_index: usize,
+    image: Handle<Image>,
+    last_size: (u32, u32),
 }
 
 #[derive(Resource)]
@@ -72,6 +77,7 @@ impl Plugin for UiPlugin {
                 update_page_visibility,
                 update_tracks_list,
                 update_track_ruler,
+                update_track_previews,
                 update_selection_visuals,
             ),
         );
@@ -301,8 +307,8 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                         width: Val::Percent(100.0),
                         height: Val::Percent(100.0),
                         flex_direction: FlexDirection::Column,
-                        align_items: AlignItems::Center,
-                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Stretch,
+                        justify_content: JustifyContent::FlexStart,
                         display: Display::None,
                         ..default()
                     },
@@ -313,9 +319,12 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                         .spawn((
                             Node {
                                 flex_direction: FlexDirection::Column,
+                                width: Val::Percent(100.0),
+                                height: Val::Percent(100.0),
                                 padding: UiRect::all(Val::Px(20.0)),
                                 border: UiRect::all(Val::Px(2.0)),
                                 row_gap: Val::Px(10.0),
+                                align_items: AlignItems::Stretch,
                                 ..default()
                             },
                             BackgroundColor(Color::srgb(0.0, 0.0, 0.7)),
@@ -384,7 +393,10 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                             ));
                                         });
                                     parent
-                                        .spawn((Node { ..default() },))
+                                        .spawn((Node {
+                                            flex_grow: 1.0,
+                                            ..default()
+                                        },))
                                         .with_children(|parent| {
                                             parent.spawn((
                                                 Text::new("Preview"),
@@ -401,6 +413,8 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                 Node {
                                     flex_direction: FlexDirection::Column,
                                     row_gap: Val::Px(6.0),
+                                    flex_grow: 1.0,
+                                    overflow: Overflow::clip(),
                                     ..default()
                                 },
                                 TracksList,
@@ -553,14 +567,36 @@ fn update_tracks_list(
                                     TextColor(Color::WHITE),
                                 ));
                             });
+                        let width_px =
+                            (track.preview_width as f32 * PREVIEW_CELL_SIZE).round();
+                        let height_px =
+                            (track.preview_height as f32 * PREVIEW_CELL_SIZE).round();
+                        let width_px = width_px.max(1.0) as u32;
+                        let height_px = height_px.max(1.0) as u32;
+                        let image = build_track_preview_image_scaled(
+                            track,
+                            width_px,
+                            height_px,
+                            &mut images,
+                        );
                         parent
-                            .spawn((Node {
-                                width: Val::Px(track.preview_width as f32 * PREVIEW_CELL_SIZE),
-                                height: Val::Px(track.preview_height as f32 * PREVIEW_CELL_SIZE),
-                                position_type: PositionType::Relative,
-                                overflow: Overflow::clip(),
-                                ..default()
-                            },))
+                            .spawn((
+                                Node {
+                                    width: Val::Percent(100.0),
+                                    flex_grow: 1.0,
+                                    height: Val::Px(
+                                        track.preview_height as f32 * PREVIEW_CELL_SIZE,
+                                    ),
+                                    position_type: PositionType::Relative,
+                                    overflow: Overflow::clip(),
+                                    ..default()
+                                },
+                                TrackPreview {
+                                    track_index: track.index,
+                                    image: image.clone(),
+                                    last_size: (width_px, height_px),
+                                },
+                            ))
                             .with_children(|parent| {
                                 parent.spawn((
                                     Node {
@@ -571,7 +607,11 @@ fn update_tracks_list(
                                         height: Val::Percent(100.0),
                                         ..default()
                                     },
-                                    ImageNode::new(build_track_preview_image(track, &mut images)),
+                                    ImageNode {
+                                        image: image.clone(),
+                                        image_mode: NodeImageMode::Stretch,
+                                        ..default()
+                                    },
                                 ));
                                 parent.spawn((
                                     Node {
@@ -586,10 +626,7 @@ fn update_tracks_list(
                                     },
                                     BackgroundColor(Color::srgb(1.0, 1.0, 1.0)),
                                     ZIndex(1),
-                                    TrackRuler {
-                                        preview_width: track.preview_width,
-                                        preview_height: track.preview_height,
-                                    },
+                                    TrackRuler,
                                 ));
                             });
                     });
@@ -620,7 +657,8 @@ fn preview_color(intensity: u16) -> Color {
 fn update_track_ruler(
     ui_state: Res<UiState>,
     audio_state: Res<AudioState>,
-    mut rulers: Query<(&mut Node, &TrackRuler)>,
+    mut rulers: Query<(&mut Node, &ChildOf), With<TrackRuler>>,
+    computed_nodes: Query<&ComputedNode>,
 ) {
     if ui_state.page != UiPage::Tracks {
         return;
@@ -629,36 +667,90 @@ fn update_track_ruler(
     let total_samples = audio_state.total_samples.load(Ordering::Relaxed);
     let samples_played = audio_state.samples_played.load(Ordering::Relaxed);
 
-    for (mut node, ruler) in &mut rulers {
+    for (mut node, child_of) in &mut rulers {
+        let Ok(parent_node) = computed_nodes.get(child_of.parent()) else {
+            node.display = Display::None;
+            continue;
+        };
+
         if total_samples == 0 {
             node.display = Display::None;
             continue;
         }
 
-        let width_px = ruler.preview_width as f32 * PREVIEW_CELL_SIZE;
+        let width_px = parent_node.size.x;
         let ratio = (samples_played as f32 / total_samples as f32).clamp(0.0, 1.0);
         let max_left = (width_px - 1.0).max(0.0);
         let left_px = (ratio * width_px).min(max_left);
         node.display = Display::Flex;
         node.left = Val::Px(left_px);
-        node.height = Val::Px(ruler.preview_height as f32 * PREVIEW_CELL_SIZE);
+        node.height = Val::Px(parent_node.size.y);
     }
 }
 
-fn build_track_preview_image(track: &MidiTrackInfo, images: &mut Assets<Image>) -> Handle<Image> {
-    let width = track.preview_width.max(1) as u32;
-    let height = track.preview_height.max(1) as u32;
+fn update_track_previews(
+    ui_state: Res<UiState>,
+    midi_tracks: Res<MidiTracks>,
+    mut previews: Query<(&ComputedNode, &mut TrackPreview, &mut ImageNode), Changed<ComputedNode>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    if ui_state.page != UiPage::Tracks {
+        return;
+    }
+
+    for (computed, mut preview, mut image_node) in &mut previews {
+        let width_px = computed.size.x.round().max(1.0) as u32;
+        let height_px = computed.size.y.round().max(1.0) as u32;
+        if preview.last_size == (width_px, height_px) {
+            continue;
+        }
+
+        let Some(track) = midi_tracks.0.get(preview.track_index) else {
+            continue;
+        };
+
+        let new_handle =
+            build_track_preview_image_scaled(track, width_px, height_px, &mut images);
+        let old_handle = std::mem::replace(&mut preview.image, new_handle.clone());
+        preview.last_size = (width_px, height_px);
+        image_node.image = new_handle;
+        if old_handle != preview.image {
+            images.remove(old_handle.id());
+        }
+    }
+}
+
+fn build_track_preview_image_scaled(
+    track: &MidiTrackInfo,
+    width: u32,
+    height: u32,
+    images: &mut Assets<Image>,
+) -> Handle<Image> {
+    let width = width.max(1);
+    let height = height.max(1);
     let mut data = vec![0u8; (width * height * 4) as usize];
     let base_color = preview_color(0).to_srgba().to_u8_array();
     for pixel in data.chunks_exact_mut(4) {
         pixel.copy_from_slice(&base_color);
     }
 
-    let max_cells = (width as usize) * (height as usize);
-    for (idx, intensity) in track.preview_cells.iter().take(max_cells).enumerate() {
-        let color = preview_color(*intensity).to_srgba().to_u8_array();
-        let offset = idx * 4;
-        data[offset..offset + 4].copy_from_slice(&color);
+    let src_width = track.preview_width.max(1);
+    let src_height = track.preview_height.max(1);
+    for y in 0..height {
+        let src_y = (y as usize * src_height) / height as usize;
+        let row_offset = src_y * src_width;
+        for x in 0..width {
+            let src_x = (x as usize * src_width) / width as usize;
+            let idx = row_offset + src_x;
+            let intensity = *track.preview_cells.get(idx).unwrap_or(&0);
+            let color = if intensity == 0 {
+                preview_color(0).to_srgba().to_u8_array()
+            } else {
+                preview_color(1).to_srgba().to_u8_array()
+            };
+            let offset = ((y * width + x) * 4) as usize;
+            data[offset..offset + 4].copy_from_slice(&color);
+        }
     }
 
     let image = Image::new(
@@ -672,6 +764,8 @@ fn build_track_preview_image(track: &MidiTrackInfo, images: &mut Assets<Image>) 
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
     );
+    let mut image = image;
+    image.sampler = ImageSampler::nearest();
 
     images.add(image)
 }

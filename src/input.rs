@@ -336,7 +336,7 @@ fn load_midi_tracks(path: &PathBuf) -> Vec<MidiTrackInfo> {
         .into_iter()
         .zip(track_spans.into_iter())
         .map(|((index, name, event_count, track_end), spans)| {
-            let center = duration_weighted_mean_pitch(&spans);
+            let (min_pitch, max_pitch) = note_range(&spans);
             MidiTrackInfo {
                 index,
                 name,
@@ -349,7 +349,8 @@ fn load_midi_tracks(path: &PathBuf) -> Vec<MidiTrackInfo> {
                     ticks_per_column,
                     max_tick,
                     track_end,
-                    center,
+                    min_pitch,
+                    max_pitch,
                     &spans,
                 ),
             }
@@ -357,23 +358,17 @@ fn load_midi_tracks(path: &PathBuf) -> Vec<MidiTrackInfo> {
         .collect()
 }
 
-fn duration_weighted_mean_pitch(spans: &[(u8, u64, u64)]) -> f32 {
-    let mut weighted_sum = 0.0f64;
-    let mut total = 0.0f64;
-
-    for &(pitch, start, end) in spans {
-        let mut duration = end.saturating_sub(start);
-        if duration == 0 {
-            duration = 1;
-        }
-        weighted_sum += pitch as f64 * duration as f64;
-        total += duration as f64;
+fn note_range(spans: &[(u8, u64, u64)]) -> (u8, u8) {
+    let mut min_pitch = 127u8;
+    let mut max_pitch = 0u8;
+    for &(pitch, _, _) in spans {
+        min_pitch = min_pitch.min(pitch);
+        max_pitch = max_pitch.max(pitch);
     }
-
-    if total > 0.0 {
-        (weighted_sum / total) as f32
+    if spans.is_empty() {
+        (60, 60)
     } else {
-        60.0
+        (min_pitch, max_pitch)
     }
 }
 
@@ -395,7 +390,8 @@ fn build_track_preview(
     ticks_per_column: u64,
     max_tick: u64,
     track_end: u64,
-    center_pitch: f32,
+    min_pitch: u8,
+    max_pitch: u8,
     spans: &[(u8, u64, u64)],
 ) -> Vec<u16> {
     if width == 0 || height == 0 {
@@ -410,7 +406,7 @@ fn build_track_preview(
     for &(pitch, start, end) in spans {
         let start_col = (start / ticks_per_column) as usize;
         let end_col = (end / ticks_per_column) as usize;
-        let row = pitch_to_row(height, center_pitch, pitch);
+        let row = pitch_to_row_range(height, min_pitch, max_pitch, pitch);
         let row_offset = row * width;
         let end_col = end_col.min(width.saturating_sub(1));
         for col in start_col..=end_col {
@@ -424,12 +420,20 @@ fn build_track_preview(
     cells
 }
 
-fn pitch_to_row(height: usize, center_pitch: f32, pitch: u8) -> usize {
+fn pitch_to_row_range(height: usize, min_pitch: u8, max_pitch: u8, pitch: u8) -> usize {
     if height == 0 {
         return 0;
     }
-    let half = (height as f32 - 1.0) / 2.0;
-    let scale = 128.0 / height as f32;
-    let row = (half - (pitch as f32 - center_pitch) / scale).round();
-    row.clamp(0.0, (height - 1) as f32) as usize
+    let padding = ((height as f32) * 0.08).round() as usize;
+    let padding = padding.min(height.saturating_sub(1) / 2);
+    let usable_height = height.saturating_sub(padding * 2).max(1);
+    if min_pitch >= max_pitch {
+        return padding + ((usable_height - 1) as f32 / 2.0).round() as usize;
+    }
+    let span = (max_pitch - min_pitch) as f32;
+    let t = (max_pitch.saturating_sub(pitch) as f32) / span;
+    let row = t * (usable_height as f32 - 1.0);
+    (padding as f32 + row)
+        .round()
+        .clamp(0.0, (height - 1) as f32) as usize
 }
