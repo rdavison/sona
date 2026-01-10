@@ -1,8 +1,10 @@
-use crate::state::{MidiFilePath, PlaybackStatus, SoundFontPath, UiPage, UiSelection, UiState};
+use crate::state::{
+    MidiFilePath, MidiTracks, PlaybackStatus, SoundFontPath, UiPage, UiSelection, UiState,
+};
 use bevy::prelude::{
     default, AlignItems, App, AssetServer, BackgroundColor, BorderColor, Camera2d, Color, Commands,
-    Component, Display, FlexDirection, JustifyContent, Node, Plugin, Query, Res, Startup, Text,
-    TextColor, TextFont, UiRect, Update, Val, With, Without,
+    Component, DetectChanges, Display, Entity, FlexDirection, JustifyContent, Node, Plugin, Query,
+    Res, Startup, Text, TextColor, TextFont, UiRect, Update, Val, With, Without,
 };
 
 #[derive(Component)]
@@ -29,12 +31,30 @@ pub struct SplashPageRoot;
 #[derive(Component)]
 pub struct AboutPageRoot;
 
+#[derive(Component)]
+pub struct TracksPageRoot;
+
+#[derive(Component)]
+pub struct TracksList;
+
+#[derive(Component)]
+pub struct TrackRow;
+
+#[derive(Component)]
+pub struct TrackRowCell;
+
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_ui)
-            .add_systems(Update, (update_page_visibility, update_selection_visuals));
+        app.add_systems(Startup, setup_ui).add_systems(
+            Update,
+            (
+                update_page_visibility,
+                update_tracks_list,
+                update_selection_visuals,
+            ),
+        );
     }
 }
 
@@ -253,6 +273,123 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             ));
                         });
                 });
+
+            parent
+                .spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                        display: Display::None,
+                        ..default()
+                    },
+                    TracksPageRoot,
+                ))
+                .with_children(|parent| {
+                    parent
+                        .spawn((
+                            Node {
+                                flex_direction: FlexDirection::Column,
+                                padding: UiRect::all(Val::Px(20.0)),
+                                border: UiRect::all(Val::Px(2.0)),
+                                row_gap: Val::Px(10.0),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgb(0.0, 0.0, 0.7)),
+                            BorderColor::all(Color::WHITE),
+                        ))
+                        .with_children(|parent| {
+                            parent.spawn((
+                                Text::new("Tracks"),
+                                TextFont {
+                                    font: font.clone(),
+                                    font_size: 40.0,
+                                    ..default()
+                                },
+                                TextColor(Color::WHITE),
+                            ));
+                            parent.spawn((
+                                Text::new("Press T to return to the splash page."),
+                                TextFont {
+                                    font: font.clone(),
+                                    font_size: 22.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                            ));
+                            parent.spawn((Node {
+                                height: Val::Px(10.0),
+                                ..default()
+                            },));
+                            parent
+                                .spawn((Node {
+                                    flex_direction: FlexDirection::Row,
+                                    width: Val::Percent(100.0),
+                                    column_gap: Val::Px(12.0),
+                                    ..default()
+                                },))
+                                .with_children(|parent| {
+                                    parent
+                                        .spawn((Node {
+                                            width: Val::Percent(35.0),
+                                            ..default()
+                                        },))
+                                        .with_children(|parent| {
+                                            parent.spawn((
+                                                Text::new("Track"),
+                                                TextFont {
+                                                    font: font.clone(),
+                                                    font_size: 22.0,
+                                                    ..default()
+                                                },
+                                                TextColor(Color::WHITE),
+                                            ));
+                                        });
+                                    parent
+                                        .spawn((Node {
+                                            width: Val::Percent(15.0),
+                                            ..default()
+                                        },))
+                                        .with_children(|parent| {
+                                            parent.spawn((
+                                                Text::new("Events"),
+                                                TextFont {
+                                                    font: font.clone(),
+                                                    font_size: 22.0,
+                                                    ..default()
+                                                },
+                                                TextColor(Color::WHITE),
+                                            ));
+                                        });
+                                    parent
+                                        .spawn((Node {
+                                            width: Val::Percent(50.0),
+                                            ..default()
+                                        },))
+                                        .with_children(|parent| {
+                                            parent.spawn((
+                                                Text::new("Preview"),
+                                                TextFont {
+                                                    font: font.clone(),
+                                                    font_size: 22.0,
+                                                    ..default()
+                                                },
+                                                TextColor(Color::WHITE),
+                                            ));
+                                        });
+                                });
+                            parent.spawn((
+                                Node {
+                                    flex_direction: FlexDirection::Column,
+                                    row_gap: Val::Px(6.0),
+                                    ..default()
+                                },
+                                TracksList,
+                            ));
+                        });
+                });
         });
     println!("UI setup complete.");
 }
@@ -261,6 +398,14 @@ fn update_page_visibility(
     ui_state: Res<UiState>,
     mut splash_query: Query<&mut Node, With<SplashPageRoot>>,
     mut about_query: Query<&mut Node, (With<AboutPageRoot>, Without<SplashPageRoot>)>,
+    mut tracks_query: Query<
+        &mut Node,
+        (
+            With<TracksPageRoot>,
+            Without<SplashPageRoot>,
+            Without<AboutPageRoot>,
+        ),
+    >,
 ) {
     let splash_display = if ui_state.page == UiPage::Splash {
         Display::Flex
@@ -272,12 +417,173 @@ fn update_page_visibility(
     } else {
         Display::None
     };
+    let tracks_display = if ui_state.page == UiPage::Tracks {
+        Display::Flex
+    } else {
+        Display::None
+    };
 
     for mut node in &mut splash_query {
         node.display = splash_display;
     }
     for mut node in &mut about_query {
         node.display = about_display;
+    }
+    for mut node in &mut tracks_query {
+        node.display = tracks_display;
+    }
+}
+
+fn update_tracks_list(
+    midi_tracks: Res<MidiTracks>,
+    mut commands: Commands,
+    list_query: Query<Entity, With<TracksList>>,
+    track_row_query: Query<Entity, With<TrackRow>>,
+    track_row_cell_query: Query<Entity, With<TrackRowCell>>,
+    asset_server: Res<AssetServer>,
+) {
+    if !midi_tracks.is_changed() && !track_row_query.is_empty() {
+        return;
+    }
+
+    let font = asset_server.load("PixelifySans-Regular.ttf");
+
+    let mut list_iter = list_query.iter();
+    let Some(list_entity) = list_iter.next() else {
+        return;
+    };
+    if list_iter.next().is_some() {
+        return;
+    }
+
+    for row in &track_row_query {
+        commands.entity(row).despawn();
+    }
+    for cell in &track_row_cell_query {
+        commands.entity(cell).despawn();
+    }
+
+    commands.entity(list_entity).with_children(|parent| {
+        if midi_tracks.0.is_empty() {
+            parent
+                .spawn((
+                    Node {
+                        flex_direction: FlexDirection::Row,
+                        width: Val::Percent(100.0),
+                        ..default()
+                    },
+                    TrackRow,
+                ))
+                .with_children(|parent| {
+                    parent.spawn((
+                        Text::new("No tracks loaded."),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 24.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                        TrackRowCell,
+                    ));
+                });
+        } else {
+            for track in &midi_tracks.0 {
+                let name = track
+                    .name
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("Unnamed");
+                parent
+                    .spawn((
+                        Node {
+                            flex_direction: FlexDirection::Row,
+                            width: Val::Percent(100.0),
+                            column_gap: Val::Px(12.0),
+                            ..default()
+                        },
+                        TrackRow,
+                    ))
+                    .with_children(|parent| {
+                        parent
+                            .spawn((Node {
+                                width: Val::Percent(35.0),
+                                ..default()
+                            },
+                            TrackRowCell,
+                            ))
+                            .with_children(|parent| {
+                                parent.spawn((
+                                    Text::new(format!("[{:02}] {}", track.index + 1, name)),
+                                    TextFont {
+                                        font: font.clone(),
+                                        font_size: 24.0,
+                                        ..default()
+                                    },
+                                    TextColor(Color::WHITE),
+                                    TrackRowCell,
+                                ));
+                            });
+                        parent
+                            .spawn((Node {
+                                width: Val::Percent(15.0),
+                                ..default()
+                            },
+                            TrackRowCell,
+                            ))
+                            .with_children(|parent| {
+                                parent.spawn((
+                                    Text::new(track.event_count.to_string()),
+                                    TextFont {
+                                        font: font.clone(),
+                                        font_size: 24.0,
+                                        ..default()
+                                    },
+                                    TextColor(Color::WHITE),
+                                    TrackRowCell,
+                                ));
+                            });
+                        parent
+                            .spawn((Node {
+                                width: Val::Percent(50.0),
+                                ..default()
+                            },
+                            TrackRowCell,
+                            ))
+                            .with_children(|parent| {
+                                parent
+                                    .spawn((Node {
+                                        flex_direction: FlexDirection::Row,
+                                        column_gap: Val::Px(2.0),
+                                        ..default()
+                                    },
+                                    TrackRowCell,
+                                    ))
+                                    .with_children(|parent| {
+                                        for ch in track.preview.chars() {
+                                            parent.spawn((
+                                                Node {
+                                                    width: Val::Px(6.0),
+                                                    height: Val::Px(16.0),
+                                                    ..default()
+                                                },
+                                                BackgroundColor(preview_color(ch)),
+                                                TrackRowCell,
+                                            ));
+                                        }
+                                    });
+                            });
+                    });
+            }
+        }
+    });
+}
+
+fn preview_color(ch: char) -> Color {
+    match ch {
+        '#' => Color::srgb(1.0, 0.9, 0.3),
+        '*' => Color::srgb(1.0, 1.0, 1.0),
+        '|' => Color::srgb(0.4, 0.4, 0.6),
+        _ => Color::srgb(0.15, 0.15, 0.25),
     }
 }
 

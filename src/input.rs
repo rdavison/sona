@@ -1,6 +1,7 @@
 use crate::audio::{AudioCommand, AudioSender};
 use crate::state::{
-    MidiFilePath, PlaybackState, PlaybackStatus, SoundFontPath, UiPage, UiSelection, UiState,
+    MidiFilePath, MidiTrackInfo, MidiTracks, PlaybackState, PlaybackStatus, SoundFontPath, UiPage,
+    UiSelection, UiState,
 };
 use bevy::prelude::{
     App, ButtonInput, Commands, Component, Entity, KeyCode, Plugin, Query, Res, ResMut, Resource,
@@ -8,6 +9,7 @@ use bevy::prelude::{
 };
 use bevy::tasks::IoTaskPool;
 use futures_lite::future;
+use midly::{MetaMessage, Smf, TrackEventKind};
 use rfd::FileDialog;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -77,7 +79,7 @@ fn keyboard_navigation(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     keybindings: Res<Keybindings>,
 ) {
-    if ui_state.page == UiPage::About {
+    if ui_state.page != UiPage::Splash {
         return;
     }
 
@@ -142,11 +144,22 @@ fn handle_input(
         ui_state.page = match ui_state.page {
             UiPage::Splash => UiPage::About,
             UiPage::About => UiPage::Splash,
+            UiPage::Tracks => UiPage::About,
         };
         return;
     }
 
-    if ui_state.page == UiPage::About {
+    let tracks_key = keybindings.get_keycode("Tracks").unwrap_or(KeyCode::KeyT);
+    if keyboard_input.just_pressed(tracks_key) {
+        ui_state.page = if ui_state.page == UiPage::Tracks {
+            UiPage::Splash
+        } else {
+            UiPage::Tracks
+        };
+        return;
+    }
+
+    if ui_state.page != UiPage::Splash {
         return;
     }
 
@@ -214,13 +227,17 @@ fn poll_file_dialogs(
     mut tasks: Query<(Entity, &mut FileDialogTask)>,
     mut midi_path: ResMut<MidiFilePath>,
     mut soundfont_path: ResMut<SoundFontPath>,
+    mut midi_tracks: ResMut<MidiTracks>,
 ) {
     for (entity, mut task) in &mut tasks {
         if let Some(result) = future::block_on(future::poll_once(&mut task.0)) {
             println!("File dialog result received.");
             if let Some(path) = result {
                 match task.1 {
-                    UiSelection::MidiFile => midi_path.0 = Some(path),
+                    UiSelection::MidiFile => {
+                        midi_path.0 = Some(path.clone());
+                        midi_tracks.0 = load_midi_tracks(&path);
+                    }
                     UiSelection::SoundFont => soundfont_path.0 = Some(path),
                     _ => {}
                 }
@@ -228,4 +245,95 @@ fn poll_file_dialogs(
             commands.entity(entity).despawn();
         }
     }
+}
+
+fn load_midi_tracks(path: &PathBuf) -> Vec<MidiTrackInfo> {
+    let data = match std::fs::read(path) {
+        Ok(data) => data,
+        Err(err) => {
+            eprintln!("Failed to read MIDI file: {err}");
+            return Vec::new();
+        }
+    };
+
+    let smf = match Smf::parse(&data) {
+        Ok(smf) => smf,
+        Err(err) => {
+            eprintln!("Failed to parse MIDI file: {err:?}");
+            return Vec::new();
+        }
+    };
+
+    let mut track_ticks: Vec<Vec<u64>> = Vec::new();
+    let mut track_info: Vec<(usize, Option<String>, usize, u64)> = Vec::new();
+    let mut max_tick = 0u64;
+
+    for (index, track) in smf.tracks.iter().enumerate() {
+        let mut current_tick = 0u64;
+        let mut ticks = Vec::new();
+        let name = track.iter().find_map(|event| match event.kind {
+            TrackEventKind::Meta(MetaMessage::TrackName(name)) => {
+                Some(String::from_utf8_lossy(name).to_string())
+            }
+            _ => None,
+        });
+
+        for event in track.iter() {
+            current_tick += event.delta.as_int() as u64;
+            if let TrackEventKind::Midi { message, .. } = event.kind {
+                if let midly::MidiMessage::NoteOn { vel, .. } = message {
+                    if vel.as_int() > 0 {
+                        ticks.push(current_tick);
+                    }
+                }
+            }
+        }
+
+        let track_end = ticks.last().copied().unwrap_or(0);
+        max_tick = max_tick.max(track_end);
+        track_ticks.push(ticks);
+        track_info.push((index, name, track.len(), track_end));
+    }
+
+    let preview_width = 48usize;
+    track_info
+        .into_iter()
+        .zip(track_ticks.into_iter())
+        .map(|((index, name, event_count, track_end), ticks)| MidiTrackInfo {
+            index,
+            name,
+            event_count,
+            preview: build_track_preview(preview_width, max_tick, track_end, &ticks),
+        })
+        .collect()
+}
+
+fn build_track_preview(width: usize, max_tick: u64, track_end: u64, ticks: &[u64]) -> String {
+    if width == 0 {
+        return String::new();
+    }
+
+    let mut chars = vec!['.'; width];
+    let denom = max_tick.max(1) as f64;
+
+    for (i, slot) in chars.iter_mut().enumerate() {
+        if i % 8 == 0 {
+            *slot = '|';
+        }
+    }
+
+    for &tick in ticks {
+        let pos = ((tick as f64 / denom) * (width.saturating_sub(1)) as f64).round() as usize;
+        if pos < width {
+            chars[pos] = '#';
+        }
+    }
+
+    let track_pos =
+        ((track_end as f64 / denom) * (width.saturating_sub(1)) as f64).round() as usize;
+    if track_pos < width {
+        chars[track_pos] = '*';
+    }
+
+    chars.into_iter().collect()
 }

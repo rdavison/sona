@@ -16,6 +16,7 @@ pub enum UiPage {
     #[default]
     Splash,
     About,
+    Tracks,
 }
 
 #[derive(Resource, Default)]
@@ -23,6 +24,17 @@ pub struct UiState {
     pub selection: UiSelection,
     pub page: UiPage,
 }
+
+#[derive(Debug, Clone)]
+pub struct MidiTrackInfo {
+    pub index: usize,
+    pub name: Option<String>,
+    pub event_count: usize,
+    pub preview: String,
+}
+
+#[derive(Resource, Default)]
+pub struct MidiTracks(pub Vec<MidiTrackInfo>);
 
 #[derive(Resource, Default)]
 pub struct MidiFilePath(pub Option<PathBuf>);

@@ -5,7 +5,7 @@ mod ui;
 
 use crate::audio::AudioPlugin;
 use crate::input::InputPlugin;
-use crate::state::{MidiFilePath, PlaybackStatus, SoundFontPath, UiState};
+use crate::state::{MidiFilePath, MidiTracks, PlaybackStatus, SoundFontPath, UiState};
 use crate::ui::UiPlugin;
 use bevy::prelude::{default, App, DefaultPlugins, PluginGroup, Window, WindowPlugin};
 
@@ -21,6 +21,7 @@ fn main() {
             ..default()
         }))
         .init_resource::<UiState>()
+        .init_resource::<MidiTracks>()
         .init_resource::<MidiFilePath>()
         .init_resource::<SoundFontPath>()
         .init_resource::<PlaybackStatus>()
