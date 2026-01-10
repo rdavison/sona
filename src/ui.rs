@@ -3,17 +3,19 @@ use crate::state::{
     MidiFilePath, MidiTrackInfo, MidiTracks, PlaybackState, PlaybackStatus, SoundFontPath, UiPage,
     UiSelection, UiState,
 };
-use bevy::prelude::{
-    default, AlignItems, App, AssetServer, Assets, BackgroundColor, BorderColor, Camera2d, Children,
-    Changed, Color, Commands, Component, ComputedNode, DetectChanges, Display, Entity,
-    FlexDirection, Font, Handle, ColorToPacked, Image, ImageNode, JustifyContent, Node,
-    NodeImageMode, Plugin, PositionType, Query, Res, ResMut, Resource, Startup, Text, TextColor,
-    TextFont, UiRect, Update, Val, With, Without, ZIndex, Overflow, ChildOf,
-};
-use bevy::image::ImageSampler;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::asset::RenderAssetUsages;
-use std::sync::atomic::Ordering;
+use bevy::image::ImageSampler;
+use bevy::prelude::Window;
+use bevy::prelude::{
+    default, AlignItems, App, AssetServer, Assets, BackgroundColor, BorderColor, Camera2d, Changed,
+    Children, Color, ColorToPacked, Commands, Component, ComputedNode, DetectChanges, Display,
+    Entity, FlexDirection, Font, Handle, Image, ImageNode, JustifyContent, Node, NodeImageMode,
+    Overflow, Plugin, PositionType, Query, Res, ResMut, Resource, Startup, Text, TextColor,
+    TextFont, UiRect, Update, Val, With, Without, ZIndex,
+};
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::ui::UiGlobalTransform;
+use bevy::window::PrimaryWindow;
 
 #[derive(Component)]
 pub struct MidiFileText;
@@ -49,7 +51,12 @@ pub struct TracksList;
 pub struct TrackRow;
 
 #[derive(Component)]
-pub struct TrackRuler;
+pub struct TrackRuler {
+    image_entity: Entity,
+}
+
+#[derive(Component)]
+pub struct DebugOverlayText;
 
 #[derive(Component)]
 pub struct TrackPreview {
@@ -78,6 +85,7 @@ impl Plugin for UiPlugin {
                 update_tracks_list,
                 update_track_ruler,
                 update_track_previews,
+                update_debug_overlay,
                 update_selection_visuals,
             ),
         );
@@ -239,7 +247,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("Sona"),
                                 TextFont {
-                                            font: font.clone(),
+                                    font: font.clone(),
                                     font_size: 50.0,
                                     ..default()
                                 },
@@ -248,7 +256,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("Retro MIDI player built with Bevy + OxiSynth."),
                                 TextFont {
-                                            font: font.clone(),
+                                    font: font.clone(),
                                     font_size: 26.0,
                                     ..default()
                                 },
@@ -261,7 +269,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("Controls:"),
                                 TextFont {
-                                            font: font.clone(),
+                                    font: font.clone(),
                                     font_size: 28.0,
                                     ..default()
                                 },
@@ -270,7 +278,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("Arrow keys to move, Enter to select."),
                                 TextFont {
-                                            font: font.clone(),
+                                    font: font.clone(),
                                     font_size: 24.0,
                                     ..default()
                                 },
@@ -279,7 +287,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("P to play/pause, S to stop."),
                                 TextFont {
-                                            font: font.clone(),
+                                    font: font.clone(),
                                     font_size: 24.0,
                                     ..default()
                                 },
@@ -292,7 +300,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("Press ? to return to the splash page."),
                                 TextFont {
-                                            font: font.clone(),
+                                    font: font.clone(),
                                     font_size: 24.0,
                                     ..default()
                                 },
@@ -318,6 +326,31 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                     parent
                         .spawn((
                             Node {
+                                position_type: PositionType::Absolute,
+                                top: Val::Px(16.0),
+                                right: Val::Px(16.0),
+                                padding: UiRect::all(Val::Px(8.0)),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgb(0.9, 0.2, 0.2)),
+                            BorderColor::all(Color::WHITE),
+                            ZIndex(10),
+                        ))
+                        .with_children(|parent| {
+                            parent.spawn((
+                                Text::new("Debug"),
+                                TextFont {
+                                    font: font.clone(),
+                                    font_size: 16.0,
+                                    ..default()
+                                },
+                                TextColor(Color::WHITE),
+                                DebugOverlayText,
+                            ));
+                        });
+                    parent
+                        .spawn((
+                            Node {
                                 flex_direction: FlexDirection::Column,
                                 width: Val::Percent(100.0),
                                 height: Val::Percent(100.0),
@@ -334,7 +367,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("Tracks"),
                                 TextFont {
-                                            font: font.clone(),
+                                    font: font.clone(),
                                     font_size: 40.0,
                                     ..default()
                                 },
@@ -343,7 +376,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("Press T to return to the splash page."),
                                 TextFont {
-                                            font: font.clone(),
+                                    font: font.clone(),
                                     font_size: 22.0,
                                     ..default()
                                 },
@@ -369,7 +402,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                             parent.spawn((
                                                 Text::new("Track"),
                                                 TextFont {
-                                            font: font.clone(),
+                                                    font: font.clone(),
                                                     font_size: 22.0,
                                                     ..default()
                                                 },
@@ -385,7 +418,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                             parent.spawn((
                                                 Text::new("Events"),
                                                 TextFont {
-                                            font: font.clone(),
+                                                    font: font.clone(),
                                                     font_size: 22.0,
                                                     ..default()
                                                 },
@@ -401,7 +434,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                             parent.spawn((
                                                 Text::new("Preview"),
                                                 TextFont {
-                                            font: font.clone(),
+                                                    font: font.clone(),
                                                     font_size: 22.0,
                                                     ..default()
                                                 },
@@ -511,7 +544,7 @@ fn update_tracks_list(
                     parent.spawn((
                         Text::new("No tracks loaded."),
                         TextFont {
-                                            font: font.clone(),
+                            font: font.clone(),
                             font_size: 24.0,
                             ..default()
                         },
@@ -567,10 +600,8 @@ fn update_tracks_list(
                                     TextColor(Color::WHITE),
                                 ));
                             });
-                        let width_px =
-                            (track.preview_width as f32 * PREVIEW_CELL_SIZE).round();
-                        let height_px =
-                            (track.preview_height as f32 * PREVIEW_CELL_SIZE).round();
+                        let width_px = (track.preview_width as f32 * PREVIEW_CELL_SIZE).round();
+                        let height_px = (track.preview_height as f32 * PREVIEW_CELL_SIZE).round();
                         let width_px = width_px.max(1.0) as u32;
                         let height_px = height_px.max(1.0) as u32;
                         let image = build_track_preview_image_scaled(
@@ -598,21 +629,23 @@ fn update_tracks_list(
                                 },
                             ))
                             .with_children(|parent| {
-                                parent.spawn((
-                                    Node {
-                                        position_type: PositionType::Absolute,
-                                        left: Val::Px(0.0),
-                                        top: Val::Px(0.0),
-                                        width: Val::Percent(100.0),
-                                        height: Val::Percent(100.0),
-                                        ..default()
-                                    },
-                                    ImageNode {
-                                        image: image.clone(),
-                                        image_mode: NodeImageMode::Stretch,
-                                        ..default()
-                                    },
-                                ));
+                                let image_entity = parent
+                                    .spawn((
+                                        Node {
+                                            position_type: PositionType::Absolute,
+                                            left: Val::Px(0.0),
+                                            top: Val::Px(0.0),
+                                            width: Val::Percent(100.0),
+                                            height: Val::Percent(100.0),
+                                            ..default()
+                                        },
+                                        ImageNode {
+                                            image: image.clone(),
+                                            image_mode: NodeImageMode::Stretch,
+                                            ..default()
+                                        },
+                                    ))
+                                    .id();
                                 parent.spawn((
                                     Node {
                                         position_type: PositionType::Absolute,
@@ -626,7 +659,7 @@ fn update_tracks_list(
                                     },
                                     BackgroundColor(Color::srgb(1.0, 1.0, 1.0)),
                                     ZIndex(1),
-                                    TrackRuler,
+                                    TrackRuler { image_entity },
                                 ));
                             });
                     });
@@ -657,34 +690,89 @@ fn preview_color(intensity: u16) -> Color {
 fn update_track_ruler(
     ui_state: Res<UiState>,
     audio_state: Res<AudioState>,
-    mut rulers: Query<(&mut Node, &ChildOf), With<TrackRuler>>,
+    mut rulers: Query<(&mut Node, &TrackRuler)>,
     computed_nodes: Query<&ComputedNode>,
 ) {
     if ui_state.page != UiPage::Tracks {
         return;
     }
 
-    let total_samples = audio_state.total_samples.load(Ordering::Relaxed);
-    let samples_played = audio_state.samples_played.load(Ordering::Relaxed);
-
-    for (mut node, child_of) in &mut rulers {
-        let Ok(parent_node) = computed_nodes.get(child_of.parent()) else {
+    let ratio = audio_state.current_tick_ratio();
+    for (mut node, ruler) in &mut rulers {
+        let Ok(image_node) = computed_nodes.get(ruler.image_entity) else {
             node.display = Display::None;
             continue;
         };
 
-        if total_samples == 0 {
+        let Some(ratio) = ratio else {
             node.display = Display::None;
             continue;
-        }
+        };
 
-        let width_px = parent_node.size.x;
-        let ratio = (samples_played as f32 / total_samples as f32).clamp(0.0, 1.0);
+        let width_px = image_node.size.x;
         let max_left = (width_px - 1.0).max(0.0);
-        let left_px = (ratio * width_px).min(max_left);
+        let left_px = (ratio * width_px / 2.0).min(max_left);
         node.display = Display::Flex;
         node.left = Val::Px(left_px);
-        node.height = Val::Px(parent_node.size.y);
+        node.height = Val::Px(image_node.size.y);
+    }
+}
+
+fn update_debug_overlay(
+    ui_state: Res<UiState>,
+    audio_state: Res<AudioState>,
+    mut query: Query<&mut Text, With<DebugOverlayText>>,
+    rulers: Query<(Entity, &TrackRuler)>,
+    nodes: Query<(&ComputedNode, &UiGlobalTransform)>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+) {
+    if ui_state.page != UiPage::Tracks {
+        return;
+    }
+
+    let debug = audio_state.debug_state();
+    let ratio = audio_state.current_tick_ratio().unwrap_or(0.0);
+    let mut image_left = None;
+    let mut image_right = None;
+    let mut ruler_x = None;
+    let mut ruler_left = None;
+
+    let window = windows.iter().next();
+    let center_x = window.map(|w| w.resolution.width() * 0.5).unwrap_or(0.0);
+
+    if let Some((ruler_entity, ruler)) = rulers.iter().next() {
+        if let Ok((ruler_node, ruler_transform)) = nodes.get(ruler_entity) {
+            let ruler_center = center_x + ruler_transform.translation.x;
+            let ruler_half = ruler_node.size.x * 0.5;
+            ruler_x = Some(ruler_center);
+            ruler_left = Some(ruler_center - ruler_half);
+        }
+        if let Ok((image_node, image_transform)) = nodes.get(ruler.image_entity) {
+            let image_center = center_x + image_transform.translation.x;
+            let half = image_node.size.x * 0.5;
+            let left = image_center - half;
+            let right = image_center + half;
+            image_left = Some(left);
+            image_right = Some(right);
+        }
+    }
+
+    for mut text in &mut query {
+        text.0 = format!(
+            "samples: {}/{}\nlast: {} -> {}\nnext: {} -> {}\nmax_tick: {}\nratio: {:.4}\nimg_x: {:?}..{:?}\nruler_x: {:?}\nruler_left: {:?}",
+            debug.samples_played,
+            debug.total_samples,
+            debug.last_event_sample,
+            debug.last_event_tick,
+            debug.next_event_sample,
+            debug.next_event_tick,
+            debug.max_tick,
+            ratio,
+            image_left,
+            image_right,
+            ruler_x,
+            ruler_left
+        );
     }
 }
 
@@ -709,8 +797,7 @@ fn update_track_previews(
             continue;
         };
 
-        let new_handle =
-            build_track_preview_image_scaled(track, width_px, height_px, &mut images);
+        let new_handle = build_track_preview_image_scaled(track, width_px, height_px, &mut images);
         let old_handle = std::mem::replace(&mut preview.image, new_handle.clone());
         preview.last_size = (width_px, height_px);
         image_node.image = new_handle;

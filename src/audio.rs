@@ -22,6 +22,58 @@ pub struct AudioSender(pub Sender<AudioCommand>);
 pub struct AudioState {
     pub samples_played: Arc<AtomicU64>,
     pub total_samples: Arc<AtomicU64>,
+    max_tick: Arc<AtomicU64>,
+    last_event_sample: Arc<AtomicU64>,
+    last_event_tick: Arc<AtomicU64>,
+    next_event_sample: Arc<AtomicU64>,
+    next_event_tick: Arc<AtomicU64>,
+}
+
+pub struct AudioDebugState {
+    pub samples_played: u64,
+    pub total_samples: u64,
+    pub last_event_sample: u64,
+    pub next_event_sample: u64,
+    pub last_event_tick: u64,
+    pub next_event_tick: u64,
+    pub max_tick: u64,
+}
+
+impl AudioState {
+    pub fn current_tick_ratio(&self) -> Option<f32> {
+        let max_tick = self.max_tick.load(Ordering::Relaxed);
+        if max_tick == 0 {
+            return None;
+        }
+
+        let samples = self.samples_played.load(Ordering::Relaxed);
+        let last_sample = self.last_event_sample.load(Ordering::Relaxed);
+        let last_tick = self.last_event_tick.load(Ordering::Relaxed);
+        let next_sample = self.next_event_sample.load(Ordering::Relaxed);
+        let next_tick = self.next_event_tick.load(Ordering::Relaxed);
+
+        let tick = if next_sample > last_sample && next_tick >= last_tick {
+            let denom = (next_sample - last_sample) as f64;
+            let t = ((samples.saturating_sub(last_sample)) as f64 / denom).clamp(0.0, 1.0);
+            (last_tick as f64 + t * (next_tick - last_tick) as f64).round() as u64
+        } else {
+            last_tick
+        };
+
+        Some((tick as f64 / max_tick as f64).clamp(0.0, 1.0) as f32)
+    }
+
+    pub fn debug_state(&self) -> AudioDebugState {
+        AudioDebugState {
+            samples_played: self.samples_played.load(Ordering::Relaxed),
+            total_samples: self.total_samples.load(Ordering::Relaxed),
+            last_event_sample: self.last_event_sample.load(Ordering::Relaxed),
+            next_event_sample: self.next_event_sample.load(Ordering::Relaxed),
+            last_event_tick: self.last_event_tick.load(Ordering::Relaxed),
+            next_event_tick: self.next_event_tick.load(Ordering::Relaxed),
+            max_tick: self.max_tick.load(Ordering::Relaxed),
+        }
+    }
 }
 
 pub struct AudioPlugin;
@@ -31,17 +83,41 @@ impl Plugin for AudioPlugin {
         let (cmd_tx, cmd_rx) = channel::<AudioCommand>();
         let samples_played = Arc::new(AtomicU64::new(0));
         let total_samples = Arc::new(AtomicU64::new(0));
+        let max_tick = Arc::new(AtomicU64::new(0));
+        let last_event_sample = Arc::new(AtomicU64::new(0));
+        let last_event_tick = Arc::new(AtomicU64::new(0));
+        let next_event_sample = Arc::new(AtomicU64::new(0));
+        let next_event_tick = Arc::new(AtomicU64::new(0));
         let audio_state = AudioState {
             samples_played: Arc::clone(&samples_played),
             total_samples: Arc::clone(&total_samples),
+            max_tick: Arc::clone(&max_tick),
+            last_event_sample: Arc::clone(&last_event_sample),
+            last_event_tick: Arc::clone(&last_event_tick),
+            next_event_sample: Arc::clone(&next_event_sample),
+            next_event_tick: Arc::clone(&next_event_tick),
         };
 
         // Start audio thread
         let samples_played_thread = Arc::clone(&samples_played);
         let total_samples_thread = Arc::clone(&total_samples);
+        let max_tick_thread = Arc::clone(&max_tick);
+        let last_event_sample_thread = Arc::clone(&last_event_sample);
+        let last_event_tick_thread = Arc::clone(&last_event_tick);
+        let next_event_sample_thread = Arc::clone(&next_event_sample);
+        let next_event_tick_thread = Arc::clone(&next_event_tick);
         thread::spawn(move || {
             println!("Audio thread spawned.");
-            audio_thread(cmd_rx, samples_played_thread, total_samples_thread);
+            audio_thread(
+                cmd_rx,
+                samples_played_thread,
+                total_samples_thread,
+                max_tick_thread,
+                last_event_sample_thread,
+                last_event_tick_thread,
+                next_event_sample_thread,
+                next_event_tick_thread,
+            );
         });
 
         app.insert_resource(AudioSender(cmd_tx));
@@ -50,6 +126,7 @@ impl Plugin for AudioPlugin {
 }
 
 struct MidiPlaybackEvent {
+    tick: u64,
     sample: u64,
     event: MidiEvent,
 }
@@ -111,6 +188,11 @@ fn audio_thread(
     cmd_rx: Receiver<AudioCommand>,
     samples_played: Arc<AtomicU64>,
     total_samples: Arc<AtomicU64>,
+    max_tick_shared: Arc<AtomicU64>,
+    last_event_sample: Arc<AtomicU64>,
+    last_event_tick: Arc<AtomicU64>,
+    next_event_sample: Arc<AtomicU64>,
+    next_event_tick: Arc<AtomicU64>,
 ) {
     println!("Audio thread: Initializing CPAL...");
     let host = cpal::default_host();
@@ -139,6 +221,12 @@ fn audio_thread(
     let samples_played_clone_cb = Arc::clone(&samples_played);
     let playback_index_clone_cb = Arc::clone(&playback_index);
     let is_playing_clone_cb = Arc::clone(&is_playing);
+    let total_samples_clone_cb = Arc::clone(&total_samples);
+    let max_tick_clone_cb = Arc::clone(&max_tick_shared);
+    let last_event_sample_clone_cb = Arc::clone(&last_event_sample);
+    let last_event_tick_clone_cb = Arc::clone(&last_event_tick);
+    let next_event_sample_clone_cb = Arc::clone(&next_event_sample);
+    let next_event_tick_clone_cb = Arc::clone(&next_event_tick);
 
     println!("Audio thread: Building output stream...");
     let stream = device
@@ -166,7 +254,23 @@ fn audio_thread(
                         {
                             let ev = &events[*index];
                             let _ = synth.send_event(ev.event);
+                            last_event_sample_clone_cb.store(ev.sample, Ordering::Relaxed);
+                            last_event_tick_clone_cb.store(ev.tick, Ordering::Relaxed);
                             *index += 1;
+                        }
+                        if *index < events.len() {
+                            let next = &events[*index];
+                            next_event_sample_clone_cb.store(next.sample, Ordering::Relaxed);
+                            next_event_tick_clone_cb.store(next.tick, Ordering::Relaxed);
+                        } else {
+                            next_event_sample_clone_cb.store(
+                                total_samples_clone_cb.load(Ordering::Relaxed),
+                                Ordering::Relaxed,
+                            );
+                            next_event_tick_clone_cb.store(
+                                max_tick_clone_cb.load(Ordering::Relaxed),
+                                Ordering::Relaxed,
+                            );
                         }
 
                         let mut samples = [0.0f32; 2];
@@ -220,20 +324,45 @@ fn audio_thread(
                                 let timing = smf.header.timing;
                                 let mut all_events = Vec::new();
                                 let mut tempo_events = Vec::new();
+                                let mut max_tick = 0u64;
+                                let mut max_note_tick = 0u64;
                                 for track in smf.tracks {
                                     let mut current_tick = 0u64;
+                                    let mut last_tick = 0u64;
+                                    let mut active_notes: Vec<Vec<u64>> = vec![Vec::new(); 128];
                                     for event in track {
                                         current_tick += event.delta.as_int() as u64;
+                                        last_tick = current_tick;
+                                        max_tick = max_tick.max(current_tick);
                                         match event.kind {
                                             TrackEventKind::Midi { channel, message } => {
                                                 let ev = match message {
                                                     midly::MidiMessage::NoteOff { key, .. } => {
+                                                        let idx = key.as_int() as usize;
+                                                        if let Some(_start) =
+                                                            active_notes[idx].pop()
+                                                        {
+                                                            max_note_tick =
+                                                                max_note_tick.max(current_tick);
+                                                        }
                                                         MidiEvent::NoteOff {
                                                             channel: channel.as_int() as u8,
                                                             key: key.as_int() as u8,
                                                         }
                                                     }
                                                     midly::MidiMessage::NoteOn { key, vel } => {
+                                                        let idx = key.as_int() as usize;
+                                                        if vel.as_int() > 0 {
+                                                            active_notes[idx].push(current_tick);
+                                                            max_note_tick =
+                                                                max_note_tick.max(current_tick);
+                                                        } else if active_notes[idx]
+                                                            .pop()
+                                                            .is_some()
+                                                        {
+                                                            max_note_tick =
+                                                                max_note_tick.max(current_tick);
+                                                        }
                                                         MidiEvent::NoteOn {
                                                             channel: channel.as_int() as u8,
                                                             key: key.as_int() as u8,
@@ -282,6 +411,9 @@ fn audio_thread(
                                             _ => {}
                                         }
                                     }
+                                    if active_notes.iter().any(|notes| !notes.is_empty()) {
+                                        max_note_tick = max_note_tick.max(last_tick);
+                                    }
                                 }
                                 all_events.sort_by_key(|(tick, _)| *tick);
 
@@ -298,15 +430,33 @@ fn audio_thread(
                                     let seconds =
                                         ticks_to_seconds(tick, &tempo_segments, ticks_per_beat);
                                     let sample = (seconds * sample_rate as f64).round() as u64;
-                                    playback.push(MidiPlaybackEvent { sample, event });
+                                    playback.push(MidiPlaybackEvent { tick, sample, event });
                                 }
 
                                 playback.sort_by_key(|e| e.sample);
+                                let ruler_max_tick =
+                                    if max_note_tick > 0 { max_note_tick } else { max_tick };
+                                let total_seconds = ticks_to_seconds(
+                                    ruler_max_tick,
+                                    &tempo_segments,
+                                    ticks_per_beat,
+                                );
                                 let final_sample =
-                                    playback.last().map(|event| event.sample).unwrap_or(0);
+                                    (total_seconds * sample_rate as f64).round() as u64;
+                                let next_event = playback.first().map(|event| (event.sample, event.tick));
                                 *playback_events.lock().unwrap() = playback;
                                 samples_played.store(0, Ordering::Relaxed);
                                 total_samples.store(final_sample, Ordering::Relaxed);
+                                max_tick_shared.store(ruler_max_tick, Ordering::Relaxed);
+                                last_event_sample.store(0, Ordering::Relaxed);
+                                last_event_tick.store(0, Ordering::Relaxed);
+                                if let Some((next_sample, next_tick)) = next_event {
+                                    next_event_sample.store(next_sample, Ordering::Relaxed);
+                                    next_event_tick.store(next_tick, Ordering::Relaxed);
+                                } else {
+                                    next_event_sample.store(final_sample, Ordering::Relaxed);
+                                    next_event_tick.store(ruler_max_tick, Ordering::Relaxed);
+                                }
                                 *playback_index.lock().unwrap() = 0;
                                 last_midi_path = Some(midi_path);
                                 last_soundfont_path = Some(sf_path);

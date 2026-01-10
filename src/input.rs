@@ -282,6 +282,7 @@ fn load_midi_tracks(path: &PathBuf) -> Vec<MidiTrackInfo> {
     let mut track_spans: Vec<Vec<(u8, u64, u64)>> = Vec::new();
     let mut track_info: Vec<(usize, Option<String>, usize, u64)> = Vec::new();
     let mut max_tick = 0u64;
+    let mut max_note_tick = 0u64;
 
     for (index, track) in smf.tracks.iter().enumerate() {
         let mut current_tick = 0u64;
@@ -323,6 +324,10 @@ fn load_midi_tracks(path: &PathBuf) -> Vec<MidiTrackInfo> {
             }
         }
 
+        let track_note_end = spans.iter().map(|(_, _, end)| *end).max().unwrap_or(0);
+        if track_note_end > 0 {
+            max_note_tick = max_note_tick.max(track_note_end);
+        }
         max_tick = max_tick.max(last_tick);
         track_spans.push(spans);
         track_info.push((index, name, track.len(), last_tick));
@@ -330,8 +335,9 @@ fn load_midi_tracks(path: &PathBuf) -> Vec<MidiTrackInfo> {
 
     let preview_height = 64usize;
     let max_preview_width = 240usize;
-    let ticks_per_column = ticks_per_column_for_width(max_tick, max_preview_width);
-    let preview_width = (max_tick / ticks_per_column) as usize + 1;
+    let ruler_max_tick = if max_note_tick > 0 { max_note_tick } else { max_tick };
+    let ticks_per_column = ticks_per_column_for_width(ruler_max_tick, max_preview_width);
+    let preview_width = (ruler_max_tick / ticks_per_column) as usize + 1;
     track_info
         .into_iter()
         .zip(track_spans.into_iter())
@@ -347,7 +353,7 @@ fn load_midi_tracks(path: &PathBuf) -> Vec<MidiTrackInfo> {
                     preview_width,
                     preview_height,
                     ticks_per_column,
-                    max_tick,
+                    ruler_max_tick,
                     track_end,
                     min_pitch,
                     max_pitch,
