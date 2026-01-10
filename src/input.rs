@@ -278,7 +278,7 @@ fn poll_file_dialogs(
     }
 }
 
-fn load_midi_tracks(path: &PathBuf) -> Vec<MidiTrackInfo> {
+pub(crate) fn load_midi_tracks(path: &PathBuf) -> Vec<MidiTrackInfo> {
     let data = match std::fs::read(path) {
         Ok(data) => data,
         Err(err) => {

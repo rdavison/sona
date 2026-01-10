@@ -8,6 +8,7 @@ bevy = "0.17.3"
 cpal = "0.17.1"
 futures-lite = "2.6.1"
 
+clap = { version = "4.5.2", features = ["derive"] }
 midly = "0.5.3"
 oxisynth = "0.1.0"
 rfd = "0.17.1"
