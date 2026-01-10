@@ -7,11 +7,11 @@ use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
 use bevy::prelude::Window;
 use bevy::prelude::{
-    default, AlignItems, App, AssetServer, Assets, BackgroundColor, BorderColor, Camera2d, Changed,
-    Children, Color, ColorToPacked, Commands, Component, ComputedNode, DetectChanges, Display,
-    Entity, FlexDirection, Font, Handle, Image, ImageNode, JustifyContent, Node, NodeImageMode,
-    Overflow, Plugin, PositionType, Query, Res, ResMut, Resource, Startup, Text, TextColor,
-    TextFont, UiRect, Update, Val, With, Without, ZIndex,
+    default, AlignItems, App, AssetServer, Assets, BackgroundColor, BorderColor, ButtonInput,
+    Camera2d, Changed, Children, Color, ColorToPacked, Commands, Component, ComputedNode,
+    DetectChanges, Display, Entity, FlexDirection, Font, Handle, Image, ImageNode, JustifyContent,
+    KeyCode, Node, NodeImageMode, Overflow, Plugin, PositionType, Query, Res, ResMut, Resource,
+    Startup, Text, TextColor, TextFont, UiRect, Update, Val, With, Without, ZIndex,
 };
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::ui::UiGlobalTransform;
@@ -59,6 +59,9 @@ pub struct TrackRuler {
 pub struct DebugOverlayText;
 
 #[derive(Component)]
+pub struct DebugOverlayRoot;
+
+#[derive(Component)]
 pub struct TrackPreview {
     track_index: usize,
     image: Handle<Image>,
@@ -70,6 +73,11 @@ struct UiFonts {
     main: Handle<Font>,
 }
 
+#[derive(Resource, Default)]
+struct DebugOverlayState {
+    visible: bool,
+}
+
 const TRACK_COL_WIDTH: f32 = 220.0;
 const EVENT_COL_WIDTH: f32 = 80.0;
 const PREVIEW_CELL_SIZE: f32 = 2.0;
@@ -78,17 +86,20 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_ui).add_systems(
-            Update,
-            (
-                update_page_visibility,
-                update_tracks_list,
-                update_track_ruler,
-                update_track_previews,
-                update_debug_overlay,
-                update_selection_visuals,
-            ),
-        );
+        app.add_systems(Startup, setup_ui)
+            .add_systems(
+                Update,
+                (
+                    update_page_visibility,
+                    update_tracks_list,
+                    update_track_ruler,
+                    update_track_previews,
+                    toggle_debug_overlay,
+                    update_debug_overlay,
+                    update_selection_visuals,
+                ),
+            )
+            .init_resource::<DebugOverlayState>();
     }
 }
 
@@ -335,6 +346,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             BackgroundColor(Color::srgb(0.9, 0.2, 0.2)),
                             BorderColor::all(Color::WHITE),
                             ZIndex(10),
+                            DebugOverlayRoot,
                         ))
                         .with_children(|parent| {
                             parent.spawn((
@@ -727,12 +739,26 @@ fn update_track_ruler(
 fn update_debug_overlay(
     ui_state: Res<UiState>,
     audio_state: Res<AudioState>,
+    overlay_state: Res<DebugOverlayState>,
     mut query: Query<&mut Text, With<DebugOverlayText>>,
     rulers: Query<(Entity, &TrackRuler)>,
     nodes: Query<(&ComputedNode, &UiGlobalTransform)>,
     windows: Query<&Window, With<PrimaryWindow>>,
+    mut overlay_nodes: Query<&mut Node, With<DebugOverlayRoot>>,
 ) {
     if ui_state.page != UiPage::Tracks {
+        return;
+    }
+
+    let show_overlay = overlay_state.visible;
+    for mut node in &mut overlay_nodes {
+        node.display = if show_overlay {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
+    if !show_overlay {
         return;
     }
 
@@ -779,6 +805,15 @@ fn update_debug_overlay(
             ruler_x,
             ruler_left
         );
+    }
+}
+
+fn toggle_debug_overlay(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut overlay_state: ResMut<DebugOverlayState>,
+) {
+    if keyboard_input.just_pressed(KeyCode::F1) {
+        overlay_state.visible = !overlay_state.visible;
     }
 }
 
