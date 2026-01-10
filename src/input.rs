@@ -1,7 +1,7 @@
 use crate::audio::{AudioCommand, AudioSender};
 use crate::state::{
     MidiFilePath, MidiTrackInfo, MidiTracks, PlaybackState, PlaybackStatus, SoundFontPath,
-    TracksFocus, UiPage, UiSelection, UiState,
+    TrackDetailsPopup, TracksFocus, UiPage, UiSelection, UiState,
 };
 use bevy::prelude::{
     App, ButtonInput, Commands, Component, Entity, KeyCode, Plugin, Query, Res, ResMut, Resource,
@@ -138,6 +138,7 @@ fn handle_input(
     keybindings: Res<Keybindings>,
     mut tracks_focus: ResMut<TracksFocus>,
     midi_tracks: Res<MidiTracks>,
+    mut track_popup: ResMut<TrackDetailsPopup>,
 ) {
     let about_toggle = keyboard_input.just_pressed(KeyCode::Slash)
         && (keyboard_input.pressed(KeyCode::ShiftLeft)
@@ -165,17 +166,30 @@ fn handle_input(
     }
 
     if ui_state.page != UiPage::Splash {
-        if ui_state.page == UiPage::Tracks && keyboard_input.just_pressed(KeyCode::Tab) {
-            let track_count = midi_tracks.0.len();
-            if track_count == 0 {
-                return;
+        if ui_state.page == UiPage::Tracks {
+            if keyboard_input.just_pressed(KeyCode::Tab) {
+                let track_count = midi_tracks.0.len();
+                if track_count == 0 {
+                    return;
+                }
+                let shift = keyboard_input.pressed(KeyCode::ShiftLeft)
+                    || keyboard_input.pressed(KeyCode::ShiftRight);
+                if shift {
+                    tracks_focus.index = (tracks_focus.index + track_count - 1) % track_count;
+                } else {
+                    tracks_focus.index = (tracks_focus.index + 1) % track_count;
+                }
             }
-            let shift = keyboard_input.pressed(KeyCode::ShiftLeft)
-                || keyboard_input.pressed(KeyCode::ShiftRight);
-            if shift {
-                tracks_focus.index = (tracks_focus.index + track_count - 1) % track_count;
-            } else {
-                tracks_focus.index = (tracks_focus.index + 1) % track_count;
+            if keyboard_input.just_pressed(KeyCode::Escape) {
+                track_popup.visible = false;
+            }
+            if keyboard_input.just_pressed(KeyCode::Enter) {
+                let track_count = midi_tracks.0.len();
+                if track_count == 0 {
+                    return;
+                }
+                track_popup.visible = true;
+                track_popup.track_index = tracks_focus.index.min(track_count.saturating_sub(1));
             }
         }
         return;
@@ -387,10 +401,15 @@ fn parse_midi_tracks(smf: &Smf) -> Vec<MidiTrackInfo> {
         .zip(track_spans.into_iter())
         .map(|((index, name, event_count, track_end), spans)| {
             let (min_pitch, max_pitch) = note_range(&spans);
+            let note_count = spans.len();
             MidiTrackInfo {
                 index,
                 name,
                 event_count,
+                end_tick: track_end,
+                note_count,
+                min_pitch,
+                max_pitch,
                 preview_width,
                 preview_height,
                 preview_cells: build_track_preview(
@@ -576,11 +595,19 @@ mod tests {
             preview_width,
             preview_height,
             preview_cells,
+            end_tick,
+            note_count,
+            min_pitch,
+            max_pitch,
             ..
         } = &tracks[0];
         assert_eq!(*preview_height, 64);
         assert!(preview_width > &0);
         assert_eq!(preview_cells.len(), preview_width * preview_height);
+        assert_eq!(*end_tick, 120);
+        assert_eq!(*note_count, 1);
+        assert_eq!(*min_pitch, 60);
+        assert_eq!(*max_pitch, 60);
     }
 
     #[test]

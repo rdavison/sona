@@ -1,6 +1,6 @@
 use super::{TracksPageRoot, UiFonts};
 use crate::audio::AudioState;
-use crate::state::{MidiTrackInfo, MidiTracks, TracksFocus, UiPage, UiState};
+use crate::state::{MidiTrackInfo, MidiTracks, TrackDetailsPopup, TracksFocus, UiPage, UiState};
 use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
 use bevy::prelude::Window;
@@ -36,6 +36,25 @@ pub(super) struct DebugOverlayText;
 
 #[derive(Component)]
 pub(super) struct DebugOverlayRoot;
+
+#[derive(Component)]
+pub(super) struct TrackDetailsPopupRoot;
+
+#[derive(Component)]
+pub(super) struct TrackDetailsField {
+    field: TrackDetailsFieldKind,
+}
+
+#[derive(Clone, Copy)]
+enum TrackDetailsFieldKind {
+    Title,
+    Index,
+    Name,
+    Events,
+    EndTick,
+    NoteCount,
+    PitchRange,
+}
 
 #[derive(Component)]
 pub(super) struct TrackPreview {
@@ -88,6 +107,10 @@ fn clamp_scroll_offset(current: f32, delta: f32, viewport_height: f32, content_h
     (current + delta).clamp(0.0, max_offset)
 }
 
+fn pitch_range_label(min_pitch: u8, max_pitch: u8) -> String {
+    format!("{} - {}", min_pitch, max_pitch)
+}
+
 pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: Handle<Font>) {
     commands.entity(parent).with_children(|parent| {
         parent
@@ -128,6 +151,120 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                             },
                             TextColor(Color::WHITE),
                             DebugOverlayText,
+                        ));
+                    });
+                parent
+                    .spawn((
+                        Node {
+                            position_type: PositionType::Absolute,
+                            top: Val::Percent(20.0),
+                            left: Val::Percent(20.0),
+                            width: Val::Percent(60.0),
+                            padding: UiRect::all(Val::Px(16.0)),
+                            border: UiRect::all(Val::Px(2.0)),
+                            flex_direction: FlexDirection::Column,
+                            row_gap: Val::Px(8.0),
+                            display: Display::None,
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgb(0.05, 0.05, 0.2)),
+                        BorderColor::all(Color::WHITE),
+                        ZIndex(20),
+                        TrackDetailsPopupRoot,
+                    ))
+                    .with_children(|parent| {
+                        parent.spawn((
+                            Text::new("Track Details"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 28.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TrackDetailsField {
+                                field: TrackDetailsFieldKind::Title,
+                            },
+                        ));
+                        parent.spawn((
+                            Text::new("Index:"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TrackDetailsField {
+                                field: TrackDetailsFieldKind::Index,
+                            },
+                        ));
+                        parent.spawn((
+                            Text::new("Name:"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TrackDetailsField {
+                                field: TrackDetailsFieldKind::Name,
+                            },
+                        ));
+                        parent.spawn((
+                            Text::new("Events:"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TrackDetailsField {
+                                field: TrackDetailsFieldKind::Events,
+                            },
+                        ));
+                        parent.spawn((
+                            Text::new("End tick:"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TrackDetailsField {
+                                field: TrackDetailsFieldKind::EndTick,
+                            },
+                        ));
+                        parent.spawn((
+                            Text::new("Notes:"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TrackDetailsField {
+                                field: TrackDetailsFieldKind::NoteCount,
+                            },
+                        ));
+                        parent.spawn((
+                            Text::new("Pitch range:"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TrackDetailsField {
+                                field: TrackDetailsFieldKind::PitchRange,
+                            },
+                        ));
+                        parent.spawn((
+                            Text::new("Press Esc to close."),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 18.0,
+                                ..default()
+                            },
+                            TextColor(Color::srgb(0.8, 0.8, 0.8)),
                         ));
                     });
                 parent
@@ -679,6 +816,61 @@ pub(super) fn update_track_previews(
     }
 }
 
+pub(super) fn update_track_details_popup(
+    ui_state: Res<UiState>,
+    popup: Res<TrackDetailsPopup>,
+    midi_tracks: Res<MidiTracks>,
+    mut root_query: Query<&mut Node, With<TrackDetailsPopupRoot>>,
+    mut fields: Query<(&TrackDetailsField, &mut Text)>,
+) {
+    if ui_state.page != UiPage::Tracks {
+        for mut node in &mut root_query {
+            node.display = Display::None;
+        }
+        return;
+    }
+
+    let show = popup.visible;
+    for mut node in &mut root_query {
+        node.display = if show { Display::Flex } else { Display::None };
+    }
+    if !show {
+        return;
+    }
+
+    let track = midi_tracks.0.get(popup.track_index);
+    for (field, mut text) in &mut fields {
+        text.0 = match field.field {
+            TrackDetailsFieldKind::Title => "Track Details".to_string(),
+            TrackDetailsFieldKind::Index => track
+                .map(|t| format!("Index: {}", t.index + 1))
+                .unwrap_or_else(|| "Index: -".to_string()),
+            TrackDetailsFieldKind::Name => track
+                .and_then(|t| t.name.as_deref().filter(|name| !name.is_empty()))
+                .map(|name| name.to_string())
+                .map(|name| format!("Name: {}", name))
+                .unwrap_or_else(|| "Name: Unnamed".to_string()),
+            TrackDetailsFieldKind::Events => track
+                .map(|t| format!("Events: {}", t.event_count))
+                .unwrap_or_else(|| "Events: -".to_string()),
+            TrackDetailsFieldKind::EndTick => track
+                .map(|t| format!("End tick: {}", t.end_tick))
+                .unwrap_or_else(|| "End tick: -".to_string()),
+            TrackDetailsFieldKind::NoteCount => track
+                .map(|t| format!("Notes: {}", t.note_count))
+                .unwrap_or_else(|| "Notes: -".to_string()),
+            TrackDetailsFieldKind::PitchRange => track
+                .map(|t| {
+                    format!(
+                        "Pitch range: {}",
+                        pitch_range_label(t.min_pitch, t.max_pitch)
+                    )
+                })
+                .unwrap_or_else(|| "Pitch range: -".to_string()),
+        };
+    }
+}
+
 pub(super) fn update_tracks_scroll(
     ui_state: Res<UiState>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
@@ -759,8 +951,8 @@ fn build_track_preview_image_scaled(
 #[cfg(test)]
 mod tests {
     use super::{
-        clamp_scroll_offset, compute_ruler_left, ellipsize_text, max_label_chars, preview_color,
-        render_preview_rgba, scale_preview_cells,
+        clamp_scroll_offset, compute_ruler_left, ellipsize_text, max_label_chars,
+        pitch_range_label, preview_color, render_preview_rgba, scale_preview_cells,
     };
     use bevy::prelude::ColorToPacked;
 
@@ -818,5 +1010,10 @@ mod tests {
         assert_eq!(offset, 50.0);
         let offset = clamp_scroll_offset(10.0, -20.0, 50.0, 100.0);
         assert_eq!(offset, 0.0);
+    }
+
+    #[test]
+    fn pitch_range_label_formats() {
+        assert_eq!(pitch_range_label(60, 72), "60 - 72");
     }
 }

@@ -30,6 +30,10 @@ pub struct MidiTrackInfo {
     pub index: usize,
     pub name: Option<String>,
     pub event_count: usize,
+    pub end_tick: u64,
+    pub note_count: usize,
+    pub min_pitch: u8,
+    pub max_pitch: u8,
     pub preview_width: usize,
     pub preview_height: usize,
     pub preview_cells: Vec<u16>,
@@ -60,4 +64,10 @@ pub struct PlaybackStatus {
 #[derive(Resource, Default)]
 pub struct TracksFocus {
     pub index: usize,
+}
+
+#[derive(Resource, Default)]
+pub struct TrackDetailsPopup {
+    pub visible: bool,
+    pub track_index: usize,
 }
