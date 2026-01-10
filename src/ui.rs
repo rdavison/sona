@@ -1,7 +1,7 @@
 use crate::audio::AudioState;
 use crate::state::{
-    MidiFilePath, MidiTrackInfo, MidiTracks, PlaybackState, PlaybackStatus, SoundFontPath, UiPage,
-    UiSelection, UiState,
+    MidiFilePath, MidiTrackInfo, MidiTracks, PlaybackState, PlaybackStatus, SoundFontPath,
+    TracksFocus, UiPage, UiSelection, UiState,
 };
 use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
@@ -48,7 +48,9 @@ pub struct TracksPageRoot;
 pub struct TracksList;
 
 #[derive(Component)]
-pub struct TrackRow;
+pub struct TrackRow {
+    pub index: usize,
+}
 
 #[derive(Component)]
 pub struct TrackRuler {
@@ -90,15 +92,16 @@ impl Plugin for UiPlugin {
             .add_systems(
                 Update,
                 (
-                    update_page_visibility,
-                    update_tracks_list,
-                    update_track_ruler,
-                    update_track_previews,
-                    toggle_debug_overlay,
-                    update_debug_overlay,
-                    update_selection_visuals,
-                ),
-            )
+                update_page_visibility,
+                update_tracks_list,
+                update_track_ruler,
+                update_track_previews,
+                toggle_debug_overlay,
+                update_tracks_focus_visuals,
+                update_debug_overlay,
+                update_selection_visuals,
+            ),
+        )
             .init_resource::<DebugOverlayState>();
     }
 }
@@ -550,7 +553,8 @@ fn update_tracks_list(
                         flex_direction: FlexDirection::Row,
                         ..default()
                     },
-                    TrackRow,
+                    BackgroundColor(Color::NONE),
+                    TrackRow { index: 0 },
                 ))
                 .with_children(|parent| {
                     parent.spawn((
@@ -564,7 +568,7 @@ fn update_tracks_list(
                     ));
                 });
         } else {
-            for track in &midi_tracks.0 {
+            for (row_index, track) in midi_tracks.0.iter().enumerate() {
                 let name = track
                     .name
                     .as_deref()
@@ -577,7 +581,8 @@ fn update_tracks_list(
                             column_gap: Val::Px(12.0),
                             ..default()
                         },
-                        TrackRow,
+                        BackgroundColor(Color::NONE),
+                        TrackRow { index: row_index },
                     ))
                     .with_children(|parent| {
                         parent
@@ -814,6 +819,32 @@ fn toggle_debug_overlay(
 ) {
     if keyboard_input.just_pressed(KeyCode::F1) {
         overlay_state.visible = !overlay_state.visible;
+    }
+}
+
+fn update_tracks_focus_visuals(
+    ui_state: Res<UiState>,
+    tracks_focus: Res<TracksFocus>,
+    midi_tracks: Res<MidiTracks>,
+    mut rows: Query<(&TrackRow, &mut BackgroundColor)>,
+) {
+    if ui_state.page != UiPage::Tracks {
+        return;
+    }
+
+    let focused = if midi_tracks.0.is_empty() {
+        None
+    } else {
+        Some(tracks_focus.index.min(midi_tracks.0.len().saturating_sub(1)))
+    };
+
+    for (row, mut bg) in &mut rows {
+        let is_focused = focused.map_or(false, |index| row.index == index);
+        bg.0 = if is_focused {
+            Color::srgb(0.2, 0.3, 0.6)
+        } else {
+            Color::NONE
+        };
     }
 }
 

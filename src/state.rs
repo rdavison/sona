@@ -56,3 +56,8 @@ pub enum PlaybackState {
 pub struct PlaybackStatus {
     pub state: PlaybackState,
 }
+
+#[derive(Resource, Default)]
+pub struct TracksFocus {
+    pub index: usize,
+}

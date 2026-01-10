@@ -1,7 +1,7 @@
 use crate::audio::{AudioCommand, AudioSender};
 use crate::state::{
     MidiFilePath, MidiTrackInfo, MidiTracks, PlaybackState, PlaybackStatus, SoundFontPath, UiPage,
-    UiSelection, UiState,
+    TracksFocus, UiSelection, UiState,
 };
 use bevy::prelude::{
     App, ButtonInput, Commands, Component, Entity, KeyCode, Plugin, Query, Res, ResMut, Resource,
@@ -136,6 +136,8 @@ fn handle_input(
     mut playback_status: ResMut<PlaybackStatus>,
     audio_tx: Res<AudioSender>,
     keybindings: Res<Keybindings>,
+    mut tracks_focus: ResMut<TracksFocus>,
+    midi_tracks: Res<MidiTracks>,
 ) {
     let about_toggle = keyboard_input.just_pressed(KeyCode::Slash)
         && (keyboard_input.pressed(KeyCode::ShiftLeft)
@@ -156,10 +158,26 @@ fn handle_input(
         } else {
             UiPage::Tracks
         };
+        if ui_state.page == UiPage::Tracks {
+            tracks_focus.index = 0;
+        }
         return;
     }
 
     if ui_state.page != UiPage::Splash {
+        if ui_state.page == UiPage::Tracks && keyboard_input.just_pressed(KeyCode::Tab) {
+            let track_count = midi_tracks.0.len();
+            if track_count == 0 {
+                return;
+            }
+            let shift = keyboard_input.pressed(KeyCode::ShiftLeft)
+                || keyboard_input.pressed(KeyCode::ShiftRight);
+            if shift {
+                tracks_focus.index = (tracks_focus.index + track_count - 1) % track_count;
+            } else {
+                tracks_focus.index = (tracks_focus.index + 1) % track_count;
+            }
+        }
         return;
     }
 
