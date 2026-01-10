@@ -288,9 +288,7 @@ fn load_midi_tracks(path: &PathBuf) -> Vec<MidiTrackInfo> {
                     midly::MidiMessage::NoteOn { key, vel } => {
                         if vel.as_int() > 0 {
                             active_notes[key.as_int() as usize].push(current_tick);
-                        } else if let Some(start) =
-                            active_notes[key.as_int() as usize].pop()
-                        {
+                        } else if let Some(start) = active_notes[key.as_int() as usize].pop() {
                             spans.push((key.as_int() as u8, start, current_tick));
                         }
                     }

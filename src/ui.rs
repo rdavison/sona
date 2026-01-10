@@ -2,9 +2,9 @@ use crate::state::{
     MidiFilePath, MidiTracks, PlaybackStatus, SoundFontPath, UiPage, UiSelection, UiState,
 };
 use bevy::prelude::{
-    default, AlignItems, App, AssetServer, BackgroundColor, BorderColor, Camera2d, Color, Commands,
-    Component, DetectChanges, Display, Entity, FlexDirection, JustifyContent, Node, Plugin, Query,
-    Res, Startup, Text, TextColor, TextFont, UiRect, Update, Val, With, Without,
+    default, AlignItems, App, AssetServer, BackgroundColor, BorderColor, Camera2d, Children, Color,
+    Commands, Component, DetectChanges, Display, Entity, FlexDirection, JustifyContent, Node,
+    Plugin, Query, Res, Startup, Text, TextColor, TextFont, UiRect, Update, Val, With, Without,
 };
 
 #[derive(Component)]
@@ -39,9 +39,6 @@ pub struct TracksList;
 
 #[derive(Component)]
 pub struct TrackRow;
-
-#[derive(Component)]
-pub struct TrackRowCell;
 
 const TRACK_COL_WIDTH: f32 = 220.0;
 const EVENT_COL_WIDTH: f32 = 80.0;
@@ -367,9 +364,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                             ));
                                         });
                                     parent
-                                        .spawn((Node {
-                                            ..default()
-                                        },))
+                                        .spawn((Node { ..default() },))
                                         .with_children(|parent| {
                                             parent.spawn((
                                                 Text::new("Preview"),
@@ -441,7 +436,7 @@ fn update_tracks_list(
     mut commands: Commands,
     list_query: Query<Entity, With<TracksList>>,
     track_row_query: Query<Entity, With<TrackRow>>,
-    track_row_cell_query: Query<Entity, With<TrackRowCell>>,
+    children_query: Query<&Children>,
     asset_server: Res<AssetServer>,
 ) {
     if !midi_tracks.is_changed() && !track_row_query.is_empty() {
@@ -458,11 +453,13 @@ fn update_tracks_list(
         return;
     }
 
+    let mut descendants = Vec::new();
     for row in &track_row_query {
+        collect_descendants(row, &children_query, &mut descendants);
+        for entity in descendants.drain(..) {
+            commands.entity(entity).despawn();
+        }
         commands.entity(row).despawn();
-    }
-    for cell in &track_row_cell_query {
-        commands.entity(cell).despawn();
     }
 
     commands.entity(list_entity).with_children(|parent| {
@@ -484,7 +481,6 @@ fn update_tracks_list(
                             ..default()
                         },
                         TextColor(Color::srgb(0.8, 0.8, 0.8)),
-                        TrackRowCell,
                     ));
                 });
         } else {
@@ -508,9 +504,7 @@ fn update_tracks_list(
                             .spawn((Node {
                                 width: Val::Px(TRACK_COL_WIDTH),
                                 ..default()
-                            },
-                            TrackRowCell,
-                            ))
+                            },))
                             .with_children(|parent| {
                                 parent.spawn((
                                     Text::new(format!("[{:02}] {}", track.index + 1, name)),
@@ -520,16 +514,13 @@ fn update_tracks_list(
                                         ..default()
                                     },
                                     TextColor(Color::WHITE),
-                                    TrackRowCell,
                                 ));
                             });
                         parent
                             .spawn((Node {
                                 width: Val::Px(EVENT_COL_WIDTH),
                                 ..default()
-                            },
-                            TrackRowCell,
-                            ))
+                            },))
                             .with_children(|parent| {
                                 parent.spawn((
                                     Text::new(track.event_count.to_string()),
@@ -539,7 +530,6 @@ fn update_tracks_list(
                                         ..default()
                                     },
                                     TextColor(Color::WHITE),
-                                    TrackRowCell,
                                 ));
                             });
                         parent
@@ -549,9 +539,7 @@ fn update_tracks_list(
                                 flex_direction: FlexDirection::Column,
                                 row_gap: Val::Px(0.0),
                                 ..default()
-                            },
-                            TrackRowCell,
-                            ))
+                            },))
                             .with_children(|parent| {
                                 for row in 0..track.preview_height {
                                     parent
@@ -559,14 +547,13 @@ fn update_tracks_list(
                                             flex_direction: FlexDirection::Row,
                                             column_gap: Val::Px(0.0),
                                             ..default()
-                                        },
-                                        TrackRowCell,
-                                        ))
+                                        },))
                                         .with_children(|parent| {
                                             let row_offset = row * track.preview_width;
                                             for col in 0..track.preview_width {
                                                 let idx = row_offset + col;
-                                                let intensity = *track.preview_cells.get(idx).unwrap_or(&0);
+                                                let intensity =
+                                                    *track.preview_cells.get(idx).unwrap_or(&0);
                                                 parent.spawn((
                                                     Node {
                                                         width: Val::Px(PREVIEW_CELL_SIZE),
@@ -574,7 +561,6 @@ fn update_tracks_list(
                                                         ..default()
                                                     },
                                                     BackgroundColor(preview_color(intensity)),
-                                                    TrackRowCell,
                                                 ));
                                             }
                                         });
@@ -584,6 +570,16 @@ fn update_tracks_list(
             }
         }
     });
+}
+
+fn collect_descendants(entity: Entity, children_query: &Query<&Children>, out: &mut Vec<Entity>) {
+    let Ok(children) = children_query.get(entity) else {
+        return;
+    };
+    for child in children.iter() {
+        collect_descendants(*child, children_query, out);
+        out.push(*child);
+    }
 }
 
 fn preview_color(intensity: u16) -> Color {
