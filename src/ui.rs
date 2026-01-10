@@ -1,5 +1,6 @@
 use crate::state::{
-    MidiFilePath, MidiTracks, PlaybackStatus, SoundFontPath, UiPage, UiSelection, UiState,
+    MidiFilePath, MidiTracks, PlaybackState, PlaybackStatus, SoundFontPath, UiPage, UiSelection,
+    UiState,
 };
 use bevy::prelude::{
     default, AlignItems, App, AssetServer, BackgroundColor, BorderColor, Camera2d, Children, Color,
@@ -251,7 +252,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                 TextColor(Color::srgb(0.8, 0.8, 0.8)),
                             ));
                             parent.spawn((
-                                Text::new("P to play, S to stop."),
+                                Text::new("P to play/pause, S to stop."),
                                 TextFont {
                                     font: font.clone(),
                                     font_size: 24.0,
@@ -619,7 +620,7 @@ fn update_selection_visuals(
         ),
     >,
     mut play_query: Query<
-        &mut TextColor,
+        (&mut TextColor, &mut Text),
         (
             With<PlayButton>,
             Without<MidiFileText>,
@@ -690,11 +691,16 @@ fn update_selection_visuals(
             text.0 = format!("SoundFont: {}", path.file_name().unwrap().to_string_lossy());
         }
     }
-    for mut color in &mut play_query {
+    for (mut color, mut text) in &mut play_query {
         color.0 = if ui_state.selection == UiSelection::Play {
             selected_color
         } else {
             default_color
+        };
+        text.0 = if playback_status.state == PlaybackState::Playing {
+            "[ Pause ]".to_string()
+        } else {
+            "[ Play ]".to_string()
         };
     }
     for mut color in &mut stop_query {

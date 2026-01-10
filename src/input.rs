@@ -189,11 +189,19 @@ fn handle_input(
                 commands.spawn(FileDialogTask(task, UiSelection::SoundFont));
             }
             UiSelection::Play => {
-                if let (Some(midi), Some(sf)) = (&midi_path.0, &soundfont_path.0) {
-                    playback_status.state = PlaybackState::Playing;
-                    let _ = audio_tx
-                        .0
-                        .send(AudioCommand::Play(midi.clone(), sf.clone()));
+                match playback_status.state {
+                    PlaybackState::Playing => {
+                        playback_status.state = PlaybackState::Paused;
+                        let _ = audio_tx.0.send(AudioCommand::Pause);
+                    }
+                    PlaybackState::Paused | PlaybackState::Stopped => {
+                        if let (Some(midi), Some(sf)) = (&midi_path.0, &soundfont_path.0) {
+                            playback_status.state = PlaybackState::Playing;
+                            let _ = audio_tx
+                                .0
+                                .send(AudioCommand::Play(midi.clone(), sf.clone()));
+                        }
+                    }
                 }
             }
             UiSelection::Stop => {
@@ -201,18 +209,25 @@ fn handle_input(
                 let _ = audio_tx.0.send(AudioCommand::Stop);
             }
             UiSelection::Rewind => {
-                playback_status.state = PlaybackState::Stopped;
                 let _ = audio_tx.0.send(AudioCommand::Rewind);
             }
         }
     }
 
     if keyboard_input.just_pressed(play_key) {
-        if let (Some(midi), Some(sf)) = (&midi_path.0, &soundfont_path.0) {
-            playback_status.state = PlaybackState::Playing;
-            let _ = audio_tx
-                .0
-                .send(AudioCommand::Play(midi.clone(), sf.clone()));
+        match playback_status.state {
+            PlaybackState::Playing => {
+                playback_status.state = PlaybackState::Paused;
+                let _ = audio_tx.0.send(AudioCommand::Pause);
+            }
+            PlaybackState::Paused | PlaybackState::Stopped => {
+                if let (Some(midi), Some(sf)) = (&midi_path.0, &soundfont_path.0) {
+                    playback_status.state = PlaybackState::Playing;
+                    let _ = audio_tx
+                        .0
+                        .send(AudioCommand::Play(midi.clone(), sf.clone()));
+                }
+            }
         }
     }
 
