@@ -392,6 +392,61 @@ fn preview_color(intensity: u16) -> Color {
     Color::srgb(bright, bright * 0.9, 0.2 + level * 0.08)
 }
 
+fn scale_preview_cells(
+    cells: &[u16],
+    src_width: usize,
+    src_height: usize,
+    dst_width: u32,
+    dst_height: u32,
+) -> Vec<u16> {
+    let dst_width = dst_width.max(1) as usize;
+    let dst_height = dst_height.max(1) as usize;
+    let src_width = src_width.max(1);
+    let src_height = src_height.max(1);
+    let mut scaled = vec![0u16; dst_width * dst_height];
+
+    for y in 0..dst_height {
+        let src_y = (y * src_height) / dst_height;
+        let row_offset = src_y * src_width;
+        for x in 0..dst_width {
+            let src_x = (x * src_width) / dst_width;
+            let idx = row_offset + src_x;
+            scaled[y * dst_width + x] = *cells.get(idx).unwrap_or(&0);
+        }
+    }
+
+    scaled
+}
+
+fn render_preview_rgba(cells: &[u16], width: u32, height: u32) -> Vec<u8> {
+    let width = width.max(1);
+    let height = height.max(1);
+    let mut data = vec![0u8; (width * height * 4) as usize];
+    let base_color = preview_color(0).to_srgba().to_u8_array();
+    for pixel in data.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&base_color);
+    }
+
+    for (idx, intensity) in cells.iter().enumerate() {
+        let color = if *intensity == 0 {
+            preview_color(0).to_srgba().to_u8_array()
+        } else {
+            preview_color(1).to_srgba().to_u8_array()
+        };
+        let offset = idx * 4;
+        if offset + 4 <= data.len() {
+            data[offset..offset + 4].copy_from_slice(&color);
+        }
+    }
+
+    data
+}
+
+fn compute_ruler_left(ratio: f32, width_px: f32) -> f32 {
+    let max_left = (width_px - 1.0).max(0.0);
+    (ratio * width_px).min(max_left)
+}
+
 pub(super) fn update_track_ruler(
     ui_state: Res<UiState>,
     audio_state: Res<AudioState>,
@@ -421,8 +476,7 @@ pub(super) fn update_track_ruler(
         };
 
         let width_px = image_node.size.x / scale.max(1.0);
-        let max_left = (width_px - 1.0).max(0.0);
-        let left_px = (ratio * width_px).min(max_left);
+        let left_px = compute_ruler_left(ratio, width_px);
         node.display = Display::Flex;
         node.left = Val::Px(left_px);
         node.height = Val::Px(image_node.size.y);
@@ -579,30 +633,14 @@ fn build_track_preview_image_scaled(
 ) -> Handle<Image> {
     let width = width.max(1);
     let height = height.max(1);
-    let mut data = vec![0u8; (width * height * 4) as usize];
-    let base_color = preview_color(0).to_srgba().to_u8_array();
-    for pixel in data.chunks_exact_mut(4) {
-        pixel.copy_from_slice(&base_color);
-    }
-
-    let src_width = track.preview_width.max(1);
-    let src_height = track.preview_height.max(1);
-    for y in 0..height {
-        let src_y = (y as usize * src_height) / height as usize;
-        let row_offset = src_y * src_width;
-        for x in 0..width {
-            let src_x = (x as usize * src_width) / width as usize;
-            let idx = row_offset + src_x;
-            let intensity = *track.preview_cells.get(idx).unwrap_or(&0);
-            let color = if intensity == 0 {
-                preview_color(0).to_srgba().to_u8_array()
-            } else {
-                preview_color(1).to_srgba().to_u8_array()
-            };
-            let offset = ((y * width + x) * 4) as usize;
-            data[offset..offset + 4].copy_from_slice(&color);
-        }
-    }
+    let scaled = scale_preview_cells(
+        &track.preview_cells,
+        track.preview_width,
+        track.preview_height,
+        width,
+        height,
+    );
+    let data = render_preview_rgba(&scaled, width, height);
 
     let image = Image::new(
         Extent3d {
@@ -619,4 +657,38 @@ fn build_track_preview_image_scaled(
     image.sampler = ImageSampler::nearest();
 
     images.add(image)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{compute_ruler_left, preview_color, render_preview_rgba, scale_preview_cells};
+    use bevy::prelude::ColorToPacked;
+
+    #[test]
+    fn scale_preview_cells_expands_nearest() {
+        let src = vec![1, 2, 3, 4];
+        let scaled = scale_preview_cells(&src, 2, 2, 4, 4);
+        assert_eq!(scaled.len(), 16);
+        assert_eq!(scaled[0], 1);
+        assert_eq!(scaled[3], 2);
+        assert_eq!(scaled[12], 3);
+        assert_eq!(scaled[15], 4);
+    }
+
+    #[test]
+    fn render_preview_rgba_writes_colors() {
+        let cells = vec![0u16, 1u16, 0u16, 1u16];
+        let data = render_preview_rgba(&cells, 2, 2);
+        assert_eq!(data.len(), 16);
+        let off = preview_color(0).to_srgba().to_u8_array();
+        let on = preview_color(1).to_srgba().to_u8_array();
+        assert_eq!(&data[0..4], &off);
+        assert_eq!(&data[4..8], &on);
+    }
+
+    #[test]
+    fn compute_ruler_left_clamps() {
+        assert_eq!(compute_ruler_left(0.5, 100.0), 50.0);
+        assert_eq!(compute_ruler_left(2.0, 10.0), 9.0);
+    }
 }
