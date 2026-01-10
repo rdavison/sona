@@ -47,7 +47,10 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
 
     let sample_rate = config.sample_rate();
     let channels = config.channels() as usize;
-    println!("Audio thread: Sample rate: {:?}, Channels: {}", sample_rate, channels);
+    println!(
+        "Audio thread: Sample rate: {:?}, Channels: {}",
+        sample_rate, channels
+    );
 
     let synth = Arc::new(Mutex::new(Synth::default()));
     synth.lock().unwrap().set_sample_rate(sample_rate as f32);
@@ -68,12 +71,22 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
         .build_output_stream(
             &config.into(),
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                let Ok(mut synth) = synth_clone_cb.try_lock() else { return; };
-                let Ok(mut events) = playback_events_clone_cb.try_lock() else { return; };
-                let Ok(mut samples_count) = samples_played_clone_cb.try_lock() else { return; };
-                let Ok(playing_guard) = is_playing_clone_cb.try_lock() else { return; };
+                let Ok(mut synth) = synth_clone_cb.try_lock() else {
+                    return;
+                };
+                let Ok(mut events) = playback_events_clone_cb.try_lock() else {
+                    return;
+                };
+                let Ok(mut samples_count) = samples_played_clone_cb.try_lock() else {
+                    return;
+                };
+                let Ok(playing_guard) = is_playing_clone_cb.try_lock() else {
+                    return;
+                };
                 let playing = *playing_guard;
-                let Ok(tps_guard) = ticks_per_sample_clone_cb.try_lock() else { return; };
+                let Ok(tps_guard) = ticks_per_sample_clone_cb.try_lock() else {
+                    return;
+                };
                 let tps = *tps_guard;
 
                 for frame in data.chunks_mut(channels) {
@@ -130,15 +143,19 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
                                     current_tick += event.delta.as_int() as u64;
                                     if let TrackEventKind::Midi { channel, message } = event.kind {
                                         let ev = match message {
-                                            midly::MidiMessage::NoteOff { key, .. } => MidiEvent::NoteOff {
-                                                channel: channel.as_int() as u8,
-                                                key: key.as_int() as u8,
-                                            },
-                                            midly::MidiMessage::NoteOn { key, vel } => MidiEvent::NoteOn {
-                                                channel: channel.as_int() as u8,
-                                                key: key.as_int() as u8,
-                                                vel: vel.as_int() as u8,
-                                            },
+                                            midly::MidiMessage::NoteOff { key, .. } => {
+                                                MidiEvent::NoteOff {
+                                                    channel: channel.as_int() as u8,
+                                                    key: key.as_int() as u8,
+                                                }
+                                            }
+                                            midly::MidiMessage::NoteOn { key, vel } => {
+                                                MidiEvent::NoteOn {
+                                                    channel: channel.as_int() as u8,
+                                                    key: key.as_int() as u8,
+                                                    vel: vel.as_int() as u8,
+                                                }
+                                            }
                                             midly::MidiMessage::Aftertouch { key, vel } => {
                                                 MidiEvent::PolyphonicKeyPressure {
                                                     channel: channel.as_int() as u8,
@@ -146,13 +163,14 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
                                                     value: vel.as_int() as u8,
                                                 }
                                             }
-                                            midly::MidiMessage::Controller { controller, value } => {
-                                                MidiEvent::ControlChange {
-                                                    channel: channel.as_int() as u8,
-                                                    ctrl: controller.as_int() as u8,
-                                                    value: value.as_int() as u8,
-                                                }
-                                            }
+                                            midly::MidiMessage::Controller {
+                                                controller,
+                                                value,
+                                            } => MidiEvent::ControlChange {
+                                                channel: channel.as_int() as u8,
+                                                ctrl: controller.as_int() as u8,
+                                                value: value.as_int() as u8,
+                                            },
                                             midly::MidiMessage::ProgramChange { program } => {
                                                 MidiEvent::ProgramChange {
                                                     channel: channel.as_int() as u8,

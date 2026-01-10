@@ -1,13 +1,13 @@
-mod state;
 mod audio;
 mod input;
+mod state;
 mod ui;
 
-use bevy::prelude::{App, DefaultPlugins, WindowPlugin, Window, default, PluginGroup};
-use crate::state::{UiState, MidiFilePath, SoundFontPath, PlaybackStatus};
 use crate::audio::AudioPlugin;
 use crate::input::InputPlugin;
+use crate::state::{MidiFilePath, PlaybackStatus, SoundFontPath, UiState};
 use crate::ui::UiPlugin;
+use bevy::prelude::{default, App, DefaultPlugins, PluginGroup, Window, WindowPlugin};
 
 fn main() {
     println!("Starting Sona...");
@@ -29,3 +29,4 @@ fn main() {
         .add_plugins(UiPlugin)
         .run();
 }
+

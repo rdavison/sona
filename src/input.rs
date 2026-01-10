@@ -1,14 +1,17 @@
+use crate::audio::{AudioCommand, AudioSender};
+use crate::state::{
+    MidiFilePath, PlaybackState, PlaybackStatus, SoundFontPath, UiSelection, UiState,
+};
 use bevy::prelude::{
-    App, ButtonInput, Commands, Component, Entity, KeyCode, Plugin, Query, Res, ResMut, Startup, Update, Resource
+    App, ButtonInput, Commands, Component, Entity, KeyCode, Plugin, Query, Res, ResMut, Resource,
+    Startup, Update,
 };
 use bevy::tasks::IoTaskPool;
+use futures_lite::future;
 use rfd::FileDialog;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use futures_lite::future;
-use crate::state::{UiState, UiSelection, MidiFilePath, SoundFontPath, PlaybackStatus, PlaybackState};
-use crate::audio::{AudioSender, AudioCommand};
 
 #[derive(Resource, Default, Deserialize)]
 pub struct Keybindings {
@@ -62,7 +65,10 @@ impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Keybindings>()
             .add_systems(Startup, load_keybindings)
-            .add_systems(Update, (keyboard_navigation, handle_input, poll_file_dialogs));
+            .add_systems(
+                Update,
+                (keyboard_navigation, handle_input, poll_file_dialogs),
+            );
     }
 }
 
@@ -71,10 +77,18 @@ fn keyboard_navigation(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     keybindings: Res<Keybindings>,
 ) {
-    let up = keybindings.get_keycode("NavigateUp").unwrap_or(KeyCode::ArrowUp);
-    let down = keybindings.get_keycode("NavigateDown").unwrap_or(KeyCode::ArrowDown);
-    let left = keybindings.get_keycode("NavigateLeft").unwrap_or(KeyCode::ArrowLeft);
-    let right = keybindings.get_keycode("NavigateRight").unwrap_or(KeyCode::ArrowRight);
+    let up = keybindings
+        .get_keycode("NavigateUp")
+        .unwrap_or(KeyCode::ArrowUp);
+    let down = keybindings
+        .get_keycode("NavigateDown")
+        .unwrap_or(KeyCode::ArrowDown);
+    let left = keybindings
+        .get_keycode("NavigateLeft")
+        .unwrap_or(KeyCode::ArrowLeft);
+    let right = keybindings
+        .get_keycode("NavigateRight")
+        .unwrap_or(KeyCode::ArrowRight);
 
     if keyboard_input.just_pressed(down) {
         println!("Key: Down");
@@ -145,7 +159,9 @@ fn handle_input(
             UiSelection::Play => {
                 if let (Some(midi), Some(sf)) = (&midi_path.0, &soundfont_path.0) {
                     playback_status.state = PlaybackState::Playing;
-                    let _ = audio_tx.0.send(AudioCommand::Play(midi.clone(), sf.clone()));
+                    let _ = audio_tx
+                        .0
+                        .send(AudioCommand::Play(midi.clone(), sf.clone()));
                 }
             }
             UiSelection::Stop => {
@@ -162,7 +178,9 @@ fn handle_input(
     if keyboard_input.just_pressed(play_key) {
         if let (Some(midi), Some(sf)) = (&midi_path.0, &soundfont_path.0) {
             playback_status.state = PlaybackState::Playing;
-            let _ = audio_tx.0.send(AudioCommand::Play(midi.clone(), sf.clone()));
+            let _ = audio_tx
+                .0
+                .send(AudioCommand::Play(midi.clone(), sf.clone()));
         }
     }
 

@@ -1,9 +1,9 @@
+use crate::state::{MidiFilePath, PlaybackStatus, SoundFontPath, UiSelection, UiState};
 use bevy::prelude::{
-    App, AssetServer, BackgroundColor, BorderColor, Camera2d, Color, Commands, Component,
-    FlexDirection, AlignItems, JustifyContent, Node, Plugin, Query, Res, Startup, Text, TextColor, TextFont,
-    Update, Val, With, Without, UiRect, default
+    default, AlignItems, App, AssetServer, BackgroundColor, BorderColor, Camera2d, Color, Commands,
+    Component, FlexDirection, JustifyContent, Node, Plugin, Query, Res, Startup, Text, TextColor,
+    TextFont, UiRect, Update, Val, With, Without,
 };
-use crate::state::{UiSelection, UiState, MidiFilePath, SoundFontPath, PlaybackStatus};
 
 #[derive(Component)]
 pub struct MidiFileText;
@@ -28,7 +28,7 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_ui)
-           .add_systems(Update, update_selection_visuals);
+            .add_systems(Update, update_selection_visuals);
     }
 }
 
