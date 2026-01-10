@@ -131,6 +131,12 @@ struct MidiPlaybackEvent {
     event: MidiEvent,
 }
 
+struct PlaybackSchedule {
+    events: Vec<MidiPlaybackEvent>,
+    ruler_max_tick: u64,
+    total_samples: u64,
+}
+
 #[derive(Clone, Copy)]
 struct TempoSegment {
     tick: u64,
@@ -319,149 +325,30 @@ fn audio_thread(
                             }
                         }
 
-                        if let Ok(data) = std::fs::read(&midi_path) {
-                            if let Ok(smf) = Smf::parse(&data) {
-                                let timing = smf.header.timing;
-                                let mut all_events = Vec::new();
-                                let mut tempo_events = Vec::new();
-                                let mut max_tick = 0u64;
-                                let mut max_note_tick = 0u64;
-                                for track in smf.tracks {
-                                    let mut current_tick = 0u64;
-                                    let mut last_tick = 0u64;
-                                    let mut active_notes: Vec<Vec<u64>> = vec![Vec::new(); 128];
-                                    for event in track {
-                                        current_tick += event.delta.as_int() as u64;
-                                        last_tick = current_tick;
-                                        max_tick = max_tick.max(current_tick);
-                                        match event.kind {
-                                            TrackEventKind::Midi { channel, message } => {
-                                                let ev = match message {
-                                                    midly::MidiMessage::NoteOff { key, .. } => {
-                                                        let idx = key.as_int() as usize;
-                                                        if let Some(_start) =
-                                                            active_notes[idx].pop()
-                                                        {
-                                                            max_note_tick =
-                                                                max_note_tick.max(current_tick);
-                                                        }
-                                                        MidiEvent::NoteOff {
-                                                            channel: channel.as_int() as u8,
-                                                            key: key.as_int() as u8,
-                                                        }
-                                                    }
-                                                    midly::MidiMessage::NoteOn { key, vel } => {
-                                                        let idx = key.as_int() as usize;
-                                                        if vel.as_int() > 0 {
-                                                            active_notes[idx].push(current_tick);
-                                                            max_note_tick =
-                                                                max_note_tick.max(current_tick);
-                                                        } else if active_notes[idx]
-                                                            .pop()
-                                                            .is_some()
-                                                        {
-                                                            max_note_tick =
-                                                                max_note_tick.max(current_tick);
-                                                        }
-                                                        MidiEvent::NoteOn {
-                                                            channel: channel.as_int() as u8,
-                                                            key: key.as_int() as u8,
-                                                            vel: vel.as_int() as u8,
-                                                        }
-                                                    }
-                                                    midly::MidiMessage::Aftertouch { key, vel } => {
-                                                        MidiEvent::PolyphonicKeyPressure {
-                                                            channel: channel.as_int() as u8,
-                                                            key: key.as_int() as u8,
-                                                            value: vel.as_int() as u8,
-                                                        }
-                                                    }
-                                                    midly::MidiMessage::Controller {
-                                                        controller,
-                                                        value,
-                                                    } => MidiEvent::ControlChange {
-                                                        channel: channel.as_int() as u8,
-                                                        ctrl: controller.as_int() as u8,
-                                                        value: value.as_int() as u8,
-                                                    },
-                                                    midly::MidiMessage::ProgramChange { program } => {
-                                                        MidiEvent::ProgramChange {
-                                                            channel: channel.as_int() as u8,
-                                                            program_id: program.as_int() as u8,
-                                                        }
-                                                    }
-                                                    midly::MidiMessage::ChannelAftertouch { vel } => {
-                                                        MidiEvent::ChannelPressure {
-                                                            channel: channel.as_int() as u8,
-                                                            value: vel.as_int() as u8,
-                                                        }
-                                                    }
-                                                    midly::MidiMessage::PitchBend { bend } => {
-                                                        MidiEvent::PitchBend {
-                                                            channel: channel.as_int() as u8,
-                                                            value: bend.as_int() as u16,
-                                                        }
-                                                    }
-                                                };
-                                                all_events.push((current_tick, ev));
-                                            }
-                                            TrackEventKind::Meta(midly::MetaMessage::Tempo(us)) => {
-                                                tempo_events.push((current_tick, us.as_int()));
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                    if active_notes.iter().any(|notes| !notes.is_empty()) {
-                                        max_note_tick = max_note_tick.max(last_tick);
-                                    }
-                                }
-                                all_events.sort_by_key(|(tick, _)| *tick);
-
-                                let ticks_per_beat = match timing {
-                                    midly::Timing::Metrical(ticks) => ticks.as_int() as f64,
-                                    _ => 480.0,
-                                }
-                                .max(1.0);
-                                let tempo_segments =
-                                    build_tempo_segments(&tempo_events, ticks_per_beat);
-
-                                let mut playback = Vec::with_capacity(all_events.len());
-                                for (tick, event) in all_events {
-                                    let seconds =
-                                        ticks_to_seconds(tick, &tempo_segments, ticks_per_beat);
-                                    let sample = (seconds * sample_rate as f64).round() as u64;
-                                    playback.push(MidiPlaybackEvent { tick, sample, event });
-                                }
-
-                                playback.sort_by_key(|e| e.sample);
-                                let ruler_max_tick =
-                                    if max_note_tick > 0 { max_note_tick } else { max_tick };
-                                let total_seconds = ticks_to_seconds(
-                                    ruler_max_tick,
-                                    &tempo_segments,
-                                    ticks_per_beat,
-                                );
-                                let final_sample =
-                                    (total_seconds * sample_rate as f64).round() as u64;
-                                let next_event = playback.first().map(|event| (event.sample, event.tick));
-                                *playback_events.lock().unwrap() = playback;
-                                samples_played.store(0, Ordering::Relaxed);
-                                total_samples.store(final_sample, Ordering::Relaxed);
-                                max_tick_shared.store(ruler_max_tick, Ordering::Relaxed);
-                                last_event_sample.store(0, Ordering::Relaxed);
-                                last_event_tick.store(0, Ordering::Relaxed);
-                                if let Some((next_sample, next_tick)) = next_event {
-                                    next_event_sample.store(next_sample, Ordering::Relaxed);
-                                    next_event_tick.store(next_tick, Ordering::Relaxed);
-                                } else {
-                                    next_event_sample.store(final_sample, Ordering::Relaxed);
-                                    next_event_tick.store(ruler_max_tick, Ordering::Relaxed);
-                                }
-                                *playback_index.lock().unwrap() = 0;
-                                last_midi_path = Some(midi_path);
-                                last_soundfont_path = Some(sf_path);
-                                should_start = true;
+                        if let Ok(schedule) = build_playback_schedule(&midi_path, sample_rate) {
+                            let next_event = schedule
+                                .events
+                                .first()
+                                .map(|event| (event.sample, event.tick));
+                            *playback_events.lock().unwrap() = schedule.events;
+                            samples_played.store(0, Ordering::Relaxed);
+                            total_samples.store(schedule.total_samples, Ordering::Relaxed);
+                            max_tick_shared.store(schedule.ruler_max_tick, Ordering::Relaxed);
+                            last_event_sample.store(0, Ordering::Relaxed);
+                            last_event_tick.store(0, Ordering::Relaxed);
+                            if let Some((next_sample, next_tick)) = next_event {
+                                next_event_sample.store(next_sample, Ordering::Relaxed);
+                                next_event_tick.store(next_tick, Ordering::Relaxed);
+                            } else {
+                                next_event_sample
+                                    .store(schedule.total_samples, Ordering::Relaxed);
+                                next_event_tick
+                                    .store(schedule.ruler_max_tick, Ordering::Relaxed);
                             }
+                            *playback_index.lock().unwrap() = 0;
+                            last_midi_path = Some(midi_path);
+                            last_soundfont_path = Some(sf_path);
+                            should_start = true;
                         }
                     }
                     if should_start {
@@ -542,5 +429,176 @@ fn send_all_notes_off(synth: &mut Synth) {
         for key in 0u8..128 {
             let _ = synth.send_event(MidiEvent::NoteOff { channel, key });
         }
+    }
+}
+
+fn build_playback_schedule(
+    midi_path: &PathBuf,
+    sample_rate: u32,
+) -> Result<PlaybackSchedule, ()> {
+    let data = std::fs::read(midi_path).map_err(|_| ())?;
+    let smf = Smf::parse(&data).map_err(|_| ())?;
+    let timing = smf.header.timing;
+
+    let mut all_events = Vec::new();
+    let mut tempo_events = Vec::new();
+    let mut max_tick = 0u64;
+    let mut max_note_tick = 0u64;
+
+    for track in smf.tracks {
+        let mut current_tick = 0u64;
+        let mut last_tick = 0u64;
+        let mut active_notes: Vec<Vec<u64>> = vec![Vec::new(); 128];
+        for event in track {
+            current_tick += event.delta.as_int() as u64;
+            last_tick = current_tick;
+            max_tick = max_tick.max(current_tick);
+            match event.kind {
+                TrackEventKind::Midi { channel, message } => {
+                    let ev = match message {
+                        midly::MidiMessage::NoteOff { key, .. } => {
+                            let idx = key.as_int() as usize;
+                            if let Some(_start) = active_notes[idx].pop() {
+                                max_note_tick = max_note_tick.max(current_tick);
+                            }
+                            MidiEvent::NoteOff {
+                                channel: channel.as_int() as u8,
+                                key: key.as_int() as u8,
+                            }
+                        }
+                        midly::MidiMessage::NoteOn { key, vel } => {
+                            let idx = key.as_int() as usize;
+                            if vel.as_int() > 0 {
+                                active_notes[idx].push(current_tick);
+                                max_note_tick = max_note_tick.max(current_tick);
+                            } else if active_notes[idx].pop().is_some() {
+                                max_note_tick = max_note_tick.max(current_tick);
+                            }
+                            MidiEvent::NoteOn {
+                                channel: channel.as_int() as u8,
+                                key: key.as_int() as u8,
+                                vel: vel.as_int() as u8,
+                            }
+                        }
+                        midly::MidiMessage::Aftertouch { key, vel } => {
+                            MidiEvent::PolyphonicKeyPressure {
+                                channel: channel.as_int() as u8,
+                                key: key.as_int() as u8,
+                                value: vel.as_int() as u8,
+                            }
+                        }
+                        midly::MidiMessage::Controller { controller, value } => {
+                            MidiEvent::ControlChange {
+                                channel: channel.as_int() as u8,
+                                ctrl: controller.as_int() as u8,
+                                value: value.as_int() as u8,
+                            }
+                        }
+                        midly::MidiMessage::ProgramChange { program } => {
+                            MidiEvent::ProgramChange {
+                                channel: channel.as_int() as u8,
+                                program_id: program.as_int() as u8,
+                            }
+                        }
+                        midly::MidiMessage::ChannelAftertouch { vel } => {
+                            MidiEvent::ChannelPressure {
+                                channel: channel.as_int() as u8,
+                                value: vel.as_int() as u8,
+                            }
+                        }
+                        midly::MidiMessage::PitchBend { bend } => MidiEvent::PitchBend {
+                            channel: channel.as_int() as u8,
+                            value: bend.as_int() as u16,
+                        },
+                    };
+                    all_events.push((current_tick, ev));
+                }
+                TrackEventKind::Meta(midly::MetaMessage::Tempo(us)) => {
+                    tempo_events.push((current_tick, us.as_int()));
+                }
+                _ => {}
+            }
+        }
+        if active_notes.iter().any(|notes| !notes.is_empty()) {
+            max_note_tick = max_note_tick.max(last_tick);
+        }
+    }
+
+    all_events.sort_by_key(|(tick, _)| *tick);
+
+    let ticks_per_beat = match timing {
+        midly::Timing::Metrical(ticks) => ticks.as_int() as f64,
+        _ => 480.0,
+    }
+    .max(1.0);
+    let tempo_segments = build_tempo_segments(&tempo_events, ticks_per_beat);
+
+    let mut playback = Vec::with_capacity(all_events.len());
+    for (tick, event) in all_events {
+        let seconds = ticks_to_seconds(tick, &tempo_segments, ticks_per_beat);
+        let sample = (seconds * sample_rate as f64).round() as u64;
+        playback.push(MidiPlaybackEvent { tick, sample, event });
+    }
+
+    playback.sort_by_key(|e| e.sample);
+    let ruler_max_tick = if max_note_tick > 0 { max_note_tick } else { max_tick };
+    let total_seconds = ticks_to_seconds(ruler_max_tick, &tempo_segments, ticks_per_beat);
+    let total_samples = (total_seconds * sample_rate as f64).round() as u64;
+
+    Ok(PlaybackSchedule {
+        events: playback,
+        ruler_max_tick,
+        total_samples,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_playback_schedule;
+    use midly::{Format, Smf, Timing, TrackEvent, TrackEventKind};
+
+    #[test]
+    fn build_playback_schedule_respects_note_range() {
+        let mut track = Vec::new();
+        track.push(TrackEvent {
+            delta: 0.into(),
+            kind: TrackEventKind::Midi {
+                channel: 0.into(),
+                message: midly::MidiMessage::NoteOn {
+                    key: 60.into(),
+                    vel: 100.into(),
+                },
+            },
+        });
+        track.push(TrackEvent {
+            delta: 120.into(),
+            kind: TrackEventKind::Meta(midly::MetaMessage::TrackName(b"Test")),
+        });
+        track.push(TrackEvent {
+            delta: 120.into(),
+            kind: TrackEventKind::Midi {
+                channel: 0.into(),
+                message: midly::MidiMessage::NoteOff { key: 60.into(), vel: 0.into() },
+            },
+        });
+
+        let smf = Smf {
+            header: midly::Header {
+                format: Format::SingleTrack,
+                timing: Timing::Metrical(480.into()),
+            },
+            tracks: vec![track],
+        };
+
+        let mut data = Vec::new();
+        smf.write_std(&mut data).unwrap();
+        let dir = std::env::temp_dir();
+        let path = dir.join("sona_test.mid");
+        std::fs::write(&path, data).unwrap();
+
+        let schedule = build_playback_schedule(&path, 48_000).unwrap();
+        assert!(schedule.ruler_max_tick > 0);
+        assert_eq!(schedule.events.len(), 2);
+        assert!(schedule.total_samples > 0);
     }
 }
