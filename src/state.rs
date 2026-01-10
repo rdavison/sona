@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::prelude::Resource;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

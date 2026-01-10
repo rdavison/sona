@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::prelude::{App, Plugin, Resource};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use midly::{Smf, TrackEventKind};
 use oxisynth::{MidiEvent, SoundFont, Synth};
