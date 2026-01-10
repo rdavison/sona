@@ -692,12 +692,18 @@ fn update_track_ruler(
     audio_state: Res<AudioState>,
     mut rulers: Query<(&mut Node, &TrackRuler)>,
     computed_nodes: Query<&ComputedNode>,
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     if ui_state.page != UiPage::Tracks {
         return;
     }
 
     let ratio = audio_state.current_tick_ratio();
+    let scale = windows
+        .iter()
+        .next()
+        .map(|window| window.scale_factor() as f32)
+        .unwrap_or(1.0);
     for (mut node, ruler) in &mut rulers {
         let Ok(image_node) = computed_nodes.get(ruler.image_entity) else {
             node.display = Display::None;
@@ -709,9 +715,9 @@ fn update_track_ruler(
             continue;
         };
 
-        let width_px = image_node.size.x;
+        let width_px = image_node.size.x / scale.max(1.0);
         let max_left = (width_px - 1.0).max(0.0);
-        let left_px = (ratio * width_px / 2.0).min(max_left);
+        let left_px = (ratio * width_px).min(max_left);
         node.display = Display::Flex;
         node.left = Val::Px(left_px);
         node.height = Val::Px(image_node.size.y);
