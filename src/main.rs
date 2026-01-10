@@ -7,7 +7,10 @@ use crate::audio::AudioPlugin;
 use crate::input::InputPlugin;
 use crate::state::{MidiFilePath, MidiTracks, PlaybackStatus, SoundFontPath, UiState};
 use crate::ui::UiPlugin;
-use bevy::prelude::{default, App, DefaultPlugins, PluginGroup, Window, WindowPlugin};
+use bevy::prelude::{
+    default, App, DefaultPlugins, PluginGroup, Query, Startup, Window, WindowPlugin, With,
+};
+use bevy::window::PrimaryWindow;
 
 fn main() {
     println!("Starting Sona...");
@@ -20,6 +23,7 @@ fn main() {
             }),
             ..default()
         }))
+        .add_systems(Startup, maximize_primary_window)
         .init_resource::<UiState>()
         .init_resource::<MidiTracks>()
         .init_resource::<MidiFilePath>()
@@ -29,4 +33,11 @@ fn main() {
         .add_plugins(InputPlugin)
         .add_plugins(UiPlugin)
         .run();
+}
+
+fn maximize_primary_window(mut windows: Query<&mut Window, With<PrimaryWindow>>) {
+    let Ok(mut window) = windows.single_mut() else {
+        return;
+    };
+    window.set_maximized(true);
 }

@@ -1,13 +1,15 @@
 use crate::state::{
-    MidiFilePath, MidiTracks, PlaybackState, PlaybackStatus, SoundFontPath, UiPage, UiSelection,
-    UiState,
+    MidiFilePath, MidiTrackInfo, MidiTracks, PlaybackState, PlaybackStatus, SoundFontPath, UiPage,
+    UiSelection, UiState,
 };
 use bevy::prelude::{
-    default, AlignItems, App, AssetServer, BackgroundColor, BorderColor, Camera2d, Children, Color,
-    Commands, Component, DetectChanges, Display, Entity, FlexDirection, Font, Handle,
-    JustifyContent, Node, Plugin, Query, Res, Resource, Startup, Text, TextColor, TextFont, UiRect,
-    Update, Val, With, Without,
+    default, AlignItems, App, AssetServer, Assets, BackgroundColor, BorderColor, Camera2d, Children,
+    Color, Commands, Component, DetectChanges, Display, Entity, FlexDirection, Font, Handle,
+    ColorToPacked, Image, ImageNode, JustifyContent, Node, Plugin, Query, Res, ResMut, Resource,
+    Startup, Text, TextColor, TextFont, UiRect, Update, Val, With, Without,
 };
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::asset::RenderAssetUsages;
 
 #[derive(Component)]
 pub struct MidiFileText;
@@ -446,6 +448,7 @@ fn update_tracks_list(
     track_row_query: Query<Entity, With<TrackRow>>,
     children_query: Query<&Children>,
     fonts: Res<UiFonts>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     if !midi_tracks.is_changed() && !track_row_query.is_empty() {
         return;
@@ -544,36 +547,8 @@ fn update_tracks_list(
                             .spawn((Node {
                                 width: Val::Px(track.preview_width as f32 * PREVIEW_CELL_SIZE),
                                 height: Val::Px(track.preview_height as f32 * PREVIEW_CELL_SIZE),
-                                flex_direction: FlexDirection::Column,
-                                row_gap: Val::Px(0.0),
                                 ..default()
-                            },))
-                            .with_children(|parent| {
-                                for row in 0..track.preview_height {
-                                    parent
-                                        .spawn((Node {
-                                            flex_direction: FlexDirection::Row,
-                                            column_gap: Val::Px(0.0),
-                                            ..default()
-                                        },))
-                                        .with_children(|parent| {
-                                            let row_offset = row * track.preview_width;
-                                            for col in 0..track.preview_width {
-                                                let idx = row_offset + col;
-                                                let intensity =
-                                                    *track.preview_cells.get(idx).unwrap_or(&0);
-                                                parent.spawn((
-                                                    Node {
-                                                        width: Val::Px(PREVIEW_CELL_SIZE),
-                                                        height: Val::Px(PREVIEW_CELL_SIZE),
-                                                        ..default()
-                                                    },
-                                                    BackgroundColor(preview_color(intensity)),
-                                                ));
-                                            }
-                                        });
-                                }
-                            });
+                            }, ImageNode::new(build_track_preview_image(track, &mut images))));
                     });
             }
         }
@@ -597,6 +572,37 @@ fn preview_color(intensity: u16) -> Color {
     let level = (intensity as f32).min(6.0);
     let bright = 0.25 + level * 0.12;
     Color::srgb(bright, bright * 0.9, 0.2 + level * 0.08)
+}
+
+fn build_track_preview_image(track: &MidiTrackInfo, images: &mut Assets<Image>) -> Handle<Image> {
+    let width = track.preview_width.max(1) as u32;
+    let height = track.preview_height.max(1) as u32;
+    let mut data = vec![0u8; (width * height * 4) as usize];
+    let base_color = preview_color(0).to_srgba().to_u8_array();
+    for pixel in data.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&base_color);
+    }
+
+    let max_cells = (width as usize) * (height as usize);
+    for (idx, intensity) in track.preview_cells.iter().take(max_cells).enumerate() {
+        let color = preview_color(*intensity).to_srgba().to_u8_array();
+        let offset = idx * 4;
+        data[offset..offset + 4].copy_from_slice(&color);
+    }
+
+    let image = Image::new(
+        Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+    );
+
+    images.add(image)
 }
 
 fn update_selection_visuals(
