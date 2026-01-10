@@ -310,14 +310,39 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
                     *is_playing.lock().unwrap() = false;
                     *samples_played.lock().unwrap() = 0;
                     *playback_index.lock().unwrap() = 0;
-                    send_all_notes_off(&mut synth.lock().unwrap());
+                    hard_reset_synth(
+                        &mut synth.lock().unwrap(),
+                        sample_rate as f32,
+                        last_soundfont_path.as_ref(),
+                    );
                 }
                 AudioCommand::Rewind => {
                     println!("Audio thread: Rewind command received.");
                     *samples_played.lock().unwrap() = 0;
                     *playback_index.lock().unwrap() = 0;
-                    send_all_notes_off(&mut synth.lock().unwrap());
+                    hard_reset_synth(
+                        &mut synth.lock().unwrap(),
+                        sample_rate as f32,
+                        last_soundfont_path.as_ref(),
+                    );
                 }
+            }
+        }
+    }
+}
+
+fn hard_reset_synth(
+    synth: &mut Synth,
+    sample_rate: f32,
+    soundfont_path: Option<&PathBuf>,
+) {
+    *synth = Synth::default();
+    synth.set_sample_rate(sample_rate);
+
+    if let Some(path) = soundfont_path {
+        if let Ok(mut file) = std::fs::File::open(path) {
+            if let Ok(font) = SoundFont::load(&mut file) {
+                synth.add_font(font, true);
             }
         }
     }
@@ -325,6 +350,11 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
 
 fn send_all_notes_off(synth: &mut Synth) {
     for channel in 0u8..16 {
+        let _ = synth.send_event(MidiEvent::ControlChange {
+            channel,
+            ctrl: 64,
+            value: 0,
+        });
         let _ = synth.send_event(MidiEvent::ControlChange {
             channel,
             ctrl: 120,
@@ -335,5 +365,13 @@ fn send_all_notes_off(synth: &mut Synth) {
             ctrl: 123,
             value: 0,
         });
+        let _ = synth.send_event(MidiEvent::ControlChange {
+            channel,
+            ctrl: 121,
+            value: 0,
+        });
+        for key in 0u8..128 {
+            let _ = synth.send_event(MidiEvent::NoteOff { channel, key });
+        }
     }
 }
