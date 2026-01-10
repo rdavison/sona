@@ -179,8 +179,9 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
             match cmd {
                 AudioCommand::Play(midi_path, sf_path) => {
                     println!("Audio thread: Play command received.");
+                    let soundfont_changed = last_soundfont_path.as_ref() != Some(&sf_path);
                     let should_reload = last_midi_path.as_ref() != Some(&midi_path)
-                        || last_soundfont_path.as_ref() != Some(&sf_path)
+                        || soundfont_changed
                         || playback_events.lock().unwrap().is_empty();
                     let mut should_start = !should_reload;
 
@@ -188,11 +189,13 @@ fn audio_thread(cmd_rx: Receiver<AudioCommand>) {
                         *is_playing.lock().unwrap() = false;
                         send_all_notes_off(&mut synth.lock().unwrap());
 
-                        if let Ok(mut file) = std::fs::File::open(&sf_path) {
-                            if let Ok(font) = SoundFont::load(&mut file) {
-                                let mut s = synth.lock().unwrap();
-                                s.add_font(font, true);
-                                println!("Audio thread: SoundFont loaded.");
+                        if soundfont_changed {
+                            if let Ok(mut file) = std::fs::File::open(&sf_path) {
+                                if let Ok(font) = SoundFont::load(&mut file) {
+                                    let mut s = synth.lock().unwrap();
+                                    s.add_font(font, true);
+                                    println!("Audio thread: SoundFont loaded.");
+                                }
                             }
                         }
 
