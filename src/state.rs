@@ -11,9 +11,17 @@ pub enum UiSelection {
     Rewind,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UiPage {
+    #[default]
+    Splash,
+    About,
+}
+
 #[derive(Resource, Default)]
 pub struct UiState {
     pub selection: UiSelection,
+    pub page: UiPage,
 }
 
 #[derive(Resource, Default)]

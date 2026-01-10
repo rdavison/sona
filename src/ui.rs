@@ -1,8 +1,8 @@
-use crate::state::{MidiFilePath, PlaybackStatus, SoundFontPath, UiSelection, UiState};
+use crate::state::{MidiFilePath, PlaybackStatus, SoundFontPath, UiPage, UiSelection, UiState};
 use bevy::prelude::{
     default, AlignItems, App, AssetServer, BackgroundColor, BorderColor, Camera2d, Color, Commands,
-    Component, FlexDirection, JustifyContent, Node, Plugin, Query, Res, Startup, Text, TextColor,
-    TextFont, UiRect, Update, Val, With, Without,
+    Component, Display, FlexDirection, JustifyContent, Node, Plugin, Query, Res, Startup, Text,
+    TextColor, TextFont, UiRect, Update, Val, With, Without,
 };
 
 #[derive(Component)]
@@ -23,12 +23,18 @@ pub struct RewindButton;
 #[derive(Component)]
 pub struct PlaybackStatusText;
 
+#[derive(Component)]
+pub struct SplashPageRoot;
+
+#[derive(Component)]
+pub struct AboutPageRoot;
+
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_ui)
-            .add_systems(Update, update_selection_visuals);
+            .add_systems(Update, (update_page_visibility, update_selection_visuals));
     }
 }
 
@@ -43,9 +49,6 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
             Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
                 ..default()
             },
             BackgroundColor(Color::srgb(0.0, 0.0, 0.5)),
@@ -54,99 +57,228 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
             parent
                 .spawn((
                     Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
                         flex_direction: FlexDirection::Column,
-                        padding: UiRect::all(Val::Px(20.0)),
-                        border: UiRect::all(Val::Px(2.0)),
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                        display: Display::Flex,
                         ..default()
                     },
-                    BackgroundColor(Color::srgb(0.0, 0.0, 0.7)),
-                    BorderColor::all(Color::WHITE),
+                    SplashPageRoot,
                 ))
                 .with_children(|parent| {
-                    parent.spawn((
-                        Text::new("Status: Stopped"),
-                        TextFont {
-                            font: font.clone(),
-                            font_size: 30.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb(0.8, 0.8, 0.8)),
-                        PlaybackStatusText,
-                    ));
-
-                    parent.spawn((Node {
-                        height: Val::Px(20.0),
-                        ..default()
-                    },));
-
-                    parent.spawn((
-                        Text::new("MIDI File: [None]"),
-                        TextFont {
-                            font: font.clone(),
-                            font_size: 40.0,
-                            ..default()
-                        },
-                        TextColor(Color::WHITE),
-                        MidiFileText,
-                    ));
-
-                    parent.spawn((
-                        Text::new("SoundFont: [None]"),
-                        TextFont {
-                            font: font.clone(),
-                            font_size: 40.0,
-                            ..default()
-                        },
-                        TextColor(Color::WHITE),
-                        SoundFontText,
-                    ));
-
-                    parent.spawn((Node {
-                        height: Val::Px(20.0),
-                        ..default()
-                    },));
-
                     parent
-                        .spawn((Node {
-                            flex_direction: FlexDirection::Row,
-                            column_gap: Val::Px(20.0),
-                            ..default()
-                        },))
+                        .spawn((
+                            Node {
+                                flex_direction: FlexDirection::Column,
+                                padding: UiRect::all(Val::Px(20.0)),
+                                border: UiRect::all(Val::Px(2.0)),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgb(0.0, 0.0, 0.7)),
+                            BorderColor::all(Color::WHITE),
+                        ))
                         .with_children(|parent| {
                             parent.spawn((
-                                Text::new("[ Play ]"),
+                                Text::new("Status: Stopped"),
+                                TextFont {
+                                    font: font.clone(),
+                                    font_size: 30.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                                PlaybackStatusText,
+                            ));
+
+                            parent.spawn((Node {
+                                height: Val::Px(20.0),
+                                ..default()
+                            },));
+
+                            parent.spawn((
+                                Text::new("MIDI File: [None]"),
                                 TextFont {
                                     font: font.clone(),
                                     font_size: 40.0,
                                     ..default()
                                 },
                                 TextColor(Color::WHITE),
-                                PlayButton,
+                                MidiFileText,
                             ));
                             parent.spawn((
-                                Text::new("[ Stop ]"),
+                                Text::new("SoundFont: [None]"),
                                 TextFont {
                                     font: font.clone(),
                                     font_size: 40.0,
                                     ..default()
                                 },
                                 TextColor(Color::WHITE),
-                                StopButton,
+                                SoundFontText,
+                            ));
+
+                            parent.spawn((Node {
+                                height: Val::Px(20.0),
+                                ..default()
+                            },));
+
+                            parent
+                                .spawn((Node {
+                                    flex_direction: FlexDirection::Row,
+                                    column_gap: Val::Px(20.0),
+                                    ..default()
+                                },))
+                                .with_children(|parent| {
+                                    parent.spawn((
+                                        Text::new("[ Play ]"),
+                                        TextFont {
+                                            font: font.clone(),
+                                            font_size: 40.0,
+                                            ..default()
+                                        },
+                                        TextColor(Color::WHITE),
+                                        PlayButton,
+                                    ));
+                                    parent.spawn((
+                                        Text::new("[ Stop ]"),
+                                        TextFont {
+                                            font: font.clone(),
+                                            font_size: 40.0,
+                                            ..default()
+                                        },
+                                        TextColor(Color::WHITE),
+                                        StopButton,
+                                    ));
+                                    parent.spawn((
+                                        Text::new("[ Rewind ]"),
+                                        TextFont {
+                                            font: font.clone(),
+                                            font_size: 40.0,
+                                            ..default()
+                                        },
+                                        TextColor(Color::WHITE),
+                                        RewindButton,
+                                    ));
+                                });
+                        });
+                });
+
+            parent
+                .spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                        display: Display::None,
+                        ..default()
+                    },
+                    AboutPageRoot,
+                ))
+                .with_children(|parent| {
+                    parent
+                        .spawn((
+                            Node {
+                                flex_direction: FlexDirection::Column,
+                                padding: UiRect::all(Val::Px(20.0)),
+                                border: UiRect::all(Val::Px(2.0)),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgb(0.0, 0.0, 0.7)),
+                            BorderColor::all(Color::WHITE),
+                        ))
+                        .with_children(|parent| {
+                            parent.spawn((
+                                Text::new("Sona"),
+                                TextFont {
+                                    font: font.clone(),
+                                    font_size: 50.0,
+                                    ..default()
+                                },
+                                TextColor(Color::WHITE),
                             ));
                             parent.spawn((
-                                Text::new("[ Rewind ]"),
+                                Text::new("Retro MIDI player built with Bevy + OxiSynth."),
                                 TextFont {
                                     font: font.clone(),
-                                    font_size: 40.0,
+                                    font_size: 26.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                            ));
+                            parent.spawn((Node {
+                                height: Val::Px(20.0),
+                                ..default()
+                            },));
+                            parent.spawn((
+                                Text::new("Controls:"),
+                                TextFont {
+                                    font: font.clone(),
+                                    font_size: 28.0,
                                     ..default()
                                 },
                                 TextColor(Color::WHITE),
-                                RewindButton,
+                            ));
+                            parent.spawn((
+                                Text::new("Arrow keys to move, Enter to select."),
+                                TextFont {
+                                    font: font.clone(),
+                                    font_size: 24.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                            ));
+                            parent.spawn((
+                                Text::new("P to play, S to stop."),
+                                TextFont {
+                                    font: font.clone(),
+                                    font_size: 24.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                            ));
+                            parent.spawn((Node {
+                                height: Val::Px(20.0),
+                                ..default()
+                            },));
+                            parent.spawn((
+                                Text::new("Press ? to return to the splash page."),
+                                TextFont {
+                                    font: font.clone(),
+                                    font_size: 24.0,
+                                    ..default()
+                                },
+                                TextColor(Color::WHITE),
                             ));
                         });
                 });
         });
     println!("UI setup complete.");
+}
+
+fn update_page_visibility(
+    ui_state: Res<UiState>,
+    mut splash_query: Query<&mut Node, With<SplashPageRoot>>,
+    mut about_query: Query<&mut Node, (With<AboutPageRoot>, Without<SplashPageRoot>)>,
+) {
+    let splash_display = if ui_state.page == UiPage::Splash {
+        Display::Flex
+    } else {
+        Display::None
+    };
+    let about_display = if ui_state.page == UiPage::About {
+        Display::Flex
+    } else {
+        Display::None
+    };
+
+    for mut node in &mut splash_query {
+        node.display = splash_display;
+    }
+    for mut node in &mut about_query {
+        node.display = about_display;
+    }
 }
 
 fn update_selection_visuals(
@@ -221,6 +353,10 @@ fn update_selection_visuals(
         ),
     >,
 ) {
+    if ui_state.page != UiPage::Splash {
+        return;
+    }
+
     let selected_color = Color::srgb(1.0, 1.0, 0.0);
     let default_color = Color::WHITE;
 

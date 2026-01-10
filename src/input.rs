@@ -1,6 +1,6 @@
 use crate::audio::{AudioCommand, AudioSender};
 use crate::state::{
-    MidiFilePath, PlaybackState, PlaybackStatus, SoundFontPath, UiSelection, UiState,
+    MidiFilePath, PlaybackState, PlaybackStatus, SoundFontPath, UiPage, UiSelection, UiState,
 };
 use bevy::prelude::{
     App, ButtonInput, Commands, Component, Entity, KeyCode, Plugin, Query, Res, ResMut, Resource,
@@ -77,6 +77,10 @@ fn keyboard_navigation(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     keybindings: Res<Keybindings>,
 ) {
+    if ui_state.page == UiPage::About {
+        return;
+    }
+
     let up = keybindings
         .get_keycode("NavigateUp")
         .unwrap_or(KeyCode::ArrowUp);
@@ -124,13 +128,28 @@ fn keyboard_navigation(
 fn handle_input(
     mut commands: Commands,
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    ui_state: Res<UiState>,
+    mut ui_state: ResMut<UiState>,
     midi_path: Res<MidiFilePath>,
     soundfont_path: Res<SoundFontPath>,
     mut playback_status: ResMut<PlaybackStatus>,
     audio_tx: Res<AudioSender>,
     keybindings: Res<Keybindings>,
 ) {
+    let about_toggle = keyboard_input.just_pressed(KeyCode::Slash)
+        && (keyboard_input.pressed(KeyCode::ShiftLeft)
+            || keyboard_input.pressed(KeyCode::ShiftRight));
+    if about_toggle {
+        ui_state.page = match ui_state.page {
+            UiPage::Splash => UiPage::About,
+            UiPage::About => UiPage::Splash,
+        };
+        return;
+    }
+
+    if ui_state.page == UiPage::About {
+        return;
+    }
+
     let select_key = keybindings.get_keycode("Select").unwrap_or(KeyCode::Enter);
     let play_key = keybindings.get_keycode("Play").unwrap_or(KeyCode::KeyP);
     let stop_key = keybindings.get_keycode("Stop").unwrap_or(KeyCode::KeyS);
