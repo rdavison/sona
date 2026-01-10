@@ -54,6 +54,12 @@ enum TrackDetailsFieldKind {
     EndTick,
     NoteCount,
     PitchRange,
+    Channels,
+    Programs,
+    Banks,
+    TempoChanges,
+    TimeSignature,
+    KeySignature,
 }
 
 #[derive(Component)]
@@ -109,6 +115,191 @@ fn clamp_scroll_offset(current: f32, delta: f32, viewport_height: f32, content_h
 
 fn pitch_range_label(min_pitch: u8, max_pitch: u8) -> String {
     format!("{} - {}", min_pitch, max_pitch)
+}
+
+fn channel_list_label(channels: &[u8]) -> String {
+    if channels.is_empty() {
+        return "-".to_string();
+    }
+    let list = channels
+        .iter()
+        .map(|ch| (ch + 1).to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    list
+}
+
+fn key_signature_label(signature: Option<(i8, bool)>) -> String {
+    match signature {
+        Some((sharps, minor)) => format!("{} {}", sharps, if minor { "minor" } else { "major" }),
+        None => "-".to_string(),
+    }
+}
+
+fn time_signature_label(signature: Option<(u8, u8)>) -> String {
+    match signature {
+        Some((num, denom)) => format!("{}/{}", num, denom),
+        None => "-".to_string(),
+    }
+}
+
+fn program_label(program: u8) -> String {
+    const GM_NAMES: [&str; 128] = [
+        "Acoustic Grand Piano",
+        "Bright Acoustic Piano",
+        "Electric Grand Piano",
+        "Honky-tonk Piano",
+        "Electric Piano 1",
+        "Electric Piano 2",
+        "Harpsichord",
+        "Clavinet",
+        "Celesta",
+        "Glockenspiel",
+        "Music Box",
+        "Vibraphone",
+        "Marimba",
+        "Xylophone",
+        "Tubular Bells",
+        "Dulcimer",
+        "Drawbar Organ",
+        "Percussive Organ",
+        "Rock Organ",
+        "Church Organ",
+        "Reed Organ",
+        "Accordion",
+        "Harmonica",
+        "Tango Accordion",
+        "Acoustic Guitar (nylon)",
+        "Acoustic Guitar (steel)",
+        "Electric Guitar (jazz)",
+        "Electric Guitar (clean)",
+        "Electric Guitar (muted)",
+        "Overdriven Guitar",
+        "Distortion Guitar",
+        "Guitar Harmonics",
+        "Acoustic Bass",
+        "Electric Bass (finger)",
+        "Electric Bass (pick)",
+        "Fretless Bass",
+        "Slap Bass 1",
+        "Slap Bass 2",
+        "Synth Bass 1",
+        "Synth Bass 2",
+        "Violin",
+        "Viola",
+        "Cello",
+        "Contrabass",
+        "Tremolo Strings",
+        "Pizzicato Strings",
+        "Orchestral Harp",
+        "Timpani",
+        "String Ensemble 1",
+        "String Ensemble 2",
+        "SynthStrings 1",
+        "SynthStrings 2",
+        "Choir Aahs",
+        "Voice Oohs",
+        "Synth Voice",
+        "Orchestra Hit",
+        "Trumpet",
+        "Trombone",
+        "Tuba",
+        "Muted Trumpet",
+        "French Horn",
+        "Brass Section",
+        "SynthBrass 1",
+        "SynthBrass 2",
+        "Soprano Sax",
+        "Alto Sax",
+        "Tenor Sax",
+        "Baritone Sax",
+        "Oboe",
+        "English Horn",
+        "Bassoon",
+        "Clarinet",
+        "Piccolo",
+        "Flute",
+        "Recorder",
+        "Pan Flute",
+        "Blown Bottle",
+        "Shakuhachi",
+        "Whistle",
+        "Ocarina",
+        "Lead 1 (square)",
+        "Lead 2 (sawtooth)",
+        "Lead 3 (calliope)",
+        "Lead 4 (chiff)",
+        "Lead 5 (charang)",
+        "Lead 6 (voice)",
+        "Lead 7 (fifths)",
+        "Lead 8 (bass + lead)",
+        "Pad 1 (new age)",
+        "Pad 2 (warm)",
+        "Pad 3 (polysynth)",
+        "Pad 4 (choir)",
+        "Pad 5 (bowed)",
+        "Pad 6 (metallic)",
+        "Pad 7 (halo)",
+        "Pad 8 (sweep)",
+        "FX 1 (rain)",
+        "FX 2 (soundtrack)",
+        "FX 3 (crystal)",
+        "FX 4 (atmosphere)",
+        "FX 5 (brightness)",
+        "FX 6 (goblins)",
+        "FX 7 (echoes)",
+        "FX 8 (sci-fi)",
+        "Sitar",
+        "Banjo",
+        "Shamisen",
+        "Koto",
+        "Kalimba",
+        "Bagpipe",
+        "Fiddle",
+        "Shanai",
+        "Tinkle Bell",
+        "Agogo",
+        "Steel Drums",
+        "Woodblock",
+        "Taiko Drum",
+        "Melodic Tom",
+        "Synth Drum",
+        "Reverse Cymbal",
+        "Guitar Fret Noise",
+        "Breath Noise",
+        "Seashore",
+        "Bird Tweet",
+        "Telephone Ring",
+        "Helicopter",
+        "Applause",
+        "Gunshot",
+    ];
+    let name = GM_NAMES.get(program as usize).copied().unwrap_or("Unknown");
+    format!("{} {}", program + 1, name)
+}
+
+fn programs_label(programs: &[(u8, u8)]) -> String {
+    if programs.is_empty() {
+        return "-".to_string();
+    }
+    let list = programs
+        .iter()
+        .map(|(channel, program)| format!("Ch{}: {}", channel + 1, program_label(*program)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    list
+}
+
+fn banks_label(banks: &[(u8, u8, u8)]) -> String {
+    if banks.is_empty() {
+        return "-".to_string();
+    }
+    let list = banks
+        .iter()
+        .map(|(channel, msb, lsb)| format!("Ch{}: {}/{}", channel + 1, msb, lsb))
+        .collect::<Vec<_>>()
+        .join(", ");
+    list
 }
 
 pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: Handle<Font>) {
@@ -255,6 +446,78 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                             TextColor(Color::WHITE),
                             TrackDetailsField {
                                 field: TrackDetailsFieldKind::PitchRange,
+                            },
+                        ));
+                        parent.spawn((
+                            Text::new("Channels:"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TrackDetailsField {
+                                field: TrackDetailsFieldKind::Channels,
+                            },
+                        ));
+                        parent.spawn((
+                            Text::new("Programs:"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TrackDetailsField {
+                                field: TrackDetailsFieldKind::Programs,
+                            },
+                        ));
+                        parent.spawn((
+                            Text::new("Banks:"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TrackDetailsField {
+                                field: TrackDetailsFieldKind::Banks,
+                            },
+                        ));
+                        parent.spawn((
+                            Text::new("Tempo changes:"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TrackDetailsField {
+                                field: TrackDetailsFieldKind::TempoChanges,
+                            },
+                        ));
+                        parent.spawn((
+                            Text::new("Time signature:"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TrackDetailsField {
+                                field: TrackDetailsFieldKind::TimeSignature,
+                            },
+                        ));
+                        parent.spawn((
+                            Text::new("Key signature:"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TrackDetailsField {
+                                field: TrackDetailsFieldKind::KeySignature,
                             },
                         ));
                         parent.spawn((
@@ -867,6 +1130,24 @@ pub(super) fn update_track_details_popup(
                     )
                 })
                 .unwrap_or_else(|| "Pitch range: -".to_string()),
+            TrackDetailsFieldKind::Channels => track
+                .map(|t| format!("Channels: {}", channel_list_label(&t.channels)))
+                .unwrap_or_else(|| "Channels: -".to_string()),
+            TrackDetailsFieldKind::Programs => track
+                .map(|t| format!("Programs: {}", programs_label(&t.programs)))
+                .unwrap_or_else(|| "Programs: -".to_string()),
+            TrackDetailsFieldKind::Banks => track
+                .map(|t| format!("Banks: {}", banks_label(&t.banks)))
+                .unwrap_or_else(|| "Banks: -".to_string()),
+            TrackDetailsFieldKind::TempoChanges => track
+                .map(|t| format!("Tempo changes: {}", t.tempo_changes))
+                .unwrap_or_else(|| "Tempo changes: -".to_string()),
+            TrackDetailsFieldKind::TimeSignature => track
+                .map(|t| format!("Time signature: {}", time_signature_label(t.time_signature)))
+                .unwrap_or_else(|| "Time signature: -".to_string()),
+            TrackDetailsFieldKind::KeySignature => track
+                .map(|t| format!("Key signature: {}", key_signature_label(t.key_signature)))
+                .unwrap_or_else(|| "Key signature: -".to_string()),
         };
     }
 }
@@ -951,8 +1232,9 @@ fn build_track_preview_image_scaled(
 #[cfg(test)]
 mod tests {
     use super::{
-        clamp_scroll_offset, compute_ruler_left, ellipsize_text, max_label_chars,
-        pitch_range_label, preview_color, render_preview_rgba, scale_preview_cells,
+        banks_label, channel_list_label, clamp_scroll_offset, compute_ruler_left, ellipsize_text,
+        key_signature_label, max_label_chars, pitch_range_label, preview_color, program_label,
+        programs_label, render_preview_rgba, scale_preview_cells, time_signature_label,
     };
     use bevy::prelude::ColorToPacked;
 
@@ -1015,5 +1297,44 @@ mod tests {
     #[test]
     fn pitch_range_label_formats() {
         assert_eq!(pitch_range_label(60, 72), "60 - 72");
+    }
+
+    #[test]
+    fn channel_list_label_formats() {
+        assert_eq!(channel_list_label(&[]), "-");
+        assert_eq!(channel_list_label(&[0, 2, 9]), "1, 3, 10");
+    }
+
+    #[test]
+    fn time_signature_label_formats() {
+        assert_eq!(time_signature_label(None), "-");
+        assert_eq!(time_signature_label(Some((4, 4))), "4/4");
+    }
+
+    #[test]
+    fn key_signature_label_formats() {
+        assert_eq!(key_signature_label(None), "-");
+        assert_eq!(key_signature_label(Some((2, false))), "2 major");
+        assert_eq!(key_signature_label(Some((-3, true))), "-3 minor");
+    }
+
+    #[test]
+    fn program_label_formats() {
+        assert!(program_label(0).contains("Acoustic Grand Piano"));
+        assert!(program_label(40).contains("Violin"));
+    }
+
+    #[test]
+    fn programs_label_formats() {
+        assert_eq!(programs_label(&[]), "-");
+        let label = programs_label(&[(0, 0), (1, 40)]);
+        assert!(label.contains("Ch1"));
+        assert!(label.contains("Ch2"));
+    }
+
+    #[test]
+    fn banks_label_formats() {
+        assert_eq!(banks_label(&[]), "-");
+        assert_eq!(banks_label(&[(0, 1, 2)]), "Ch1: 1/2");
     }
 }

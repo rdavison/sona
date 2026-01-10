@@ -318,6 +318,12 @@ struct TrackParse {
     end_tick: u64,
     spans: Vec<(u8, u64, u64)>,
     note_end_tick: u64,
+    channels: Vec<u8>,
+    programs: Vec<(u8, u8)>,
+    banks: Vec<(u8, u8, u8)>,
+    tempo_changes: usize,
+    time_signature: Option<(u8, u8)>,
+    key_signature: Option<(i8, bool)>,
 }
 
 fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
@@ -325,6 +331,12 @@ fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
     let mut last_tick = 0u64;
     let mut spans = Vec::new();
     let mut active_notes: Vec<Vec<u64>> = vec![Vec::new(); 128];
+    let mut channels = std::collections::BTreeSet::new();
+    let mut programs = std::collections::BTreeMap::new();
+    let mut banks = std::collections::BTreeMap::<u8, (Option<u8>, Option<u8>)>::new();
+    let mut tempo_changes = 0usize;
+    let mut time_signature = None;
+    let mut key_signature = None;
     let name = track.iter().find_map(|event| match event.kind {
         TrackEventKind::Meta(MetaMessage::TrackName(name)) => {
             Some(String::from_utf8_lossy(name).to_string())
@@ -335,22 +347,50 @@ fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
     for event in track.iter() {
         current_tick += event.delta.as_int() as u64;
         last_tick = current_tick;
-        if let TrackEventKind::Midi { message, .. } = event.kind {
-            match message {
-                midly::MidiMessage::NoteOn { key, vel } => {
-                    if vel.as_int() > 0 {
-                        active_notes[key.as_int() as usize].push(current_tick);
-                    } else if let Some(start) = active_notes[key.as_int() as usize].pop() {
-                        spans.push((key.as_int() as u8, start, current_tick));
+        match event.kind {
+            TrackEventKind::Midi { channel, message } => {
+                let channel = channel.as_int() as u8;
+                channels.insert(channel);
+                match message {
+                    midly::MidiMessage::NoteOn { key, vel } => {
+                        if vel.as_int() > 0 {
+                            active_notes[key.as_int() as usize].push(current_tick);
+                        } else if let Some(start) = active_notes[key.as_int() as usize].pop() {
+                            spans.push((key.as_int() as u8, start, current_tick));
+                        }
                     }
-                }
-                midly::MidiMessage::NoteOff { key, .. } => {
-                    if let Some(start) = active_notes[key.as_int() as usize].pop() {
-                        spans.push((key.as_int() as u8, start, current_tick));
+                    midly::MidiMessage::NoteOff { key, .. } => {
+                        if let Some(start) = active_notes[key.as_int() as usize].pop() {
+                            spans.push((key.as_int() as u8, start, current_tick));
+                        }
                     }
+                    midly::MidiMessage::ProgramChange { program } => {
+                        programs.insert(channel, program.as_int() as u8);
+                    }
+                    midly::MidiMessage::Controller { controller, value } => {
+                        let ctrl = controller.as_int() as u8;
+                        if ctrl == 0 || ctrl == 32 {
+                            let entry = banks.entry(channel).or_insert((None, None));
+                            if ctrl == 0 {
+                                entry.0 = Some(value.as_int() as u8);
+                            } else {
+                                entry.1 = Some(value.as_int() as u8);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
+            TrackEventKind::Meta(MetaMessage::Tempo(_)) => {
+                tempo_changes += 1;
+            }
+            TrackEventKind::Meta(MetaMessage::TimeSignature(num, denom, _, _)) => {
+                time_signature = Some((num, 2u8.pow(denom as u32)));
+            }
+            TrackEventKind::Meta(MetaMessage::KeySignature(sharps, is_minor)) => {
+                key_signature = Some((sharps, is_minor));
+            }
+            _ => {}
         }
     }
 
@@ -362,18 +402,33 @@ fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
 
     let note_end_tick = spans.iter().map(|(_, _, end)| *end).max().unwrap_or(0);
 
+    let programs = programs.into_iter().collect();
+    let banks = banks
+        .into_iter()
+        .filter_map(|(channel, (msb, lsb))| match (msb, lsb) {
+            (None, None) => None,
+            (msb, lsb) => Some((channel, msb.unwrap_or(0), lsb.unwrap_or(0))),
+        })
+        .collect();
+
     TrackParse {
         name,
         event_count: track.len(),
         end_tick: last_tick,
         spans,
         note_end_tick,
+        channels: channels.into_iter().collect(),
+        programs,
+        banks,
+        tempo_changes,
+        time_signature,
+        key_signature,
     }
 }
 
 fn parse_midi_tracks(smf: &Smf) -> Vec<MidiTrackInfo> {
     let mut track_spans: Vec<Vec<(u8, u64, u64)>> = Vec::new();
-    let mut track_info: Vec<(usize, Option<String>, usize, u64)> = Vec::new();
+    let mut track_info: Vec<TrackInfo> = Vec::new();
     let mut max_tick = 0u64;
     let mut max_note_tick = 0u64;
 
@@ -384,7 +439,18 @@ fn parse_midi_tracks(smf: &Smf) -> Vec<MidiTrackInfo> {
         }
         max_tick = max_tick.max(parsed.end_tick);
         track_spans.push(parsed.spans);
-        track_info.push((index, parsed.name, parsed.event_count, parsed.end_tick));
+        track_info.push(TrackInfo {
+            index,
+            name: parsed.name,
+            event_count: parsed.event_count,
+            end_tick: parsed.end_tick,
+            channels: parsed.channels,
+            programs: parsed.programs,
+            banks: parsed.banks,
+            tempo_changes: parsed.tempo_changes,
+            time_signature: parsed.time_signature,
+            key_signature: parsed.key_signature,
+        });
     }
 
     let preview_height = 64usize;
@@ -399,17 +465,23 @@ fn parse_midi_tracks(smf: &Smf) -> Vec<MidiTrackInfo> {
     track_info
         .into_iter()
         .zip(track_spans.into_iter())
-        .map(|((index, name, event_count, track_end), spans)| {
+        .map(|(info, spans)| {
             let (min_pitch, max_pitch) = note_range(&spans);
             let note_count = spans.len();
             MidiTrackInfo {
-                index,
-                name,
-                event_count,
-                end_tick: track_end,
+                index: info.index,
+                name: info.name,
+                event_count: info.event_count,
+                end_tick: info.end_tick,
                 note_count,
                 min_pitch,
                 max_pitch,
+                channels: info.channels,
+                programs: info.programs,
+                banks: info.banks,
+                tempo_changes: info.tempo_changes,
+                time_signature: info.time_signature,
+                key_signature: info.key_signature,
                 preview_width,
                 preview_height,
                 preview_cells: build_track_preview(
@@ -417,7 +489,7 @@ fn parse_midi_tracks(smf: &Smf) -> Vec<MidiTrackInfo> {
                     preview_height,
                     ticks_per_column,
                     ruler_max_tick,
-                    track_end,
+                    info.end_tick,
                     min_pitch,
                     max_pitch,
                     &spans,
@@ -425,6 +497,19 @@ fn parse_midi_tracks(smf: &Smf) -> Vec<MidiTrackInfo> {
             }
         })
         .collect()
+}
+
+struct TrackInfo {
+    index: usize,
+    name: Option<String>,
+    event_count: usize,
+    end_tick: u64,
+    channels: Vec<u8>,
+    programs: Vec<(u8, u8)>,
+    banks: Vec<(u8, u8, u8)>,
+    tempo_changes: usize,
+    time_signature: Option<(u8, u8)>,
+    key_signature: Option<(i8, bool)>,
 }
 
 fn note_range(spans: &[(u8, u64, u64)]) -> (u8, u8) {
@@ -533,6 +618,13 @@ mod tests {
         track.push(TrackEvent {
             delta: 0.into(),
             kind: TrackEventKind::Midi {
+                channel: 1.into(),
+                message: midly::MidiMessage::ProgramChange { program: 40.into() },
+            },
+        });
+        track.push(TrackEvent {
+            delta: 0.into(),
+            kind: TrackEventKind::Midi {
                 channel: 0.into(),
                 message: midly::MidiMessage::NoteOn {
                     key: 60.into(),
@@ -554,8 +646,11 @@ mod tests {
         let parsed = parse_track(&track);
         assert_eq!(parsed.name.as_deref(), Some("Test"));
         assert_eq!(parsed.spans.len(), 1);
-        assert_eq!(parsed.event_count, 3);
+        assert_eq!(parsed.event_count, 4);
         assert_eq!(parsed.end_tick, 120);
+        assert!(parsed.channels.contains(&0));
+        assert!(parsed.channels.contains(&1));
+        assert_eq!(parsed.programs, vec![(1, 40)]);
     }
 
     #[test]
@@ -599,6 +694,12 @@ mod tests {
             note_count,
             min_pitch,
             max_pitch,
+            channels,
+            programs,
+            banks,
+            tempo_changes,
+            time_signature,
+            key_signature,
             ..
         } = &tracks[0];
         assert_eq!(*preview_height, 64);
@@ -608,6 +709,12 @@ mod tests {
         assert_eq!(*note_count, 1);
         assert_eq!(*min_pitch, 60);
         assert_eq!(*max_pitch, 60);
+        assert_eq!(channels.as_slice(), &[0]);
+        assert!(programs.is_empty());
+        assert!(banks.is_empty());
+        assert_eq!(*tempo_changes, 0);
+        assert!(time_signature.is_none());
+        assert!(key_signature.is_none());
     }
 
     #[test]
