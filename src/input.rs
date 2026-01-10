@@ -1,7 +1,7 @@
 use crate::audio::{AudioCommand, AudioSender};
 use crate::state::{
-    MidiFilePath, MidiTrackInfo, MidiTracks, PlaybackState, PlaybackStatus, SoundFontPath, UiPage,
-    TracksFocus, UiSelection, UiState,
+    MidiFilePath, MidiTrackInfo, MidiTracks, PlaybackState, PlaybackStatus, SoundFontPath,
+    TracksFocus, UiPage, UiSelection, UiState,
 };
 use bevy::prelude::{
     App, ButtonInput, Commands, Component, Entity, KeyCode, Plugin, Query, Res, ResMut, Resource,
@@ -9,7 +9,7 @@ use bevy::prelude::{
 };
 use bevy::tasks::IoTaskPool;
 use futures_lite::future;
-use midly::{MetaMessage, Smf, TrackEventKind};
+use midly::{MetaMessage, Smf, TrackEvent, TrackEventKind};
 use rfd::FileDialog;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -206,22 +206,20 @@ fn handle_input(
                 });
                 commands.spawn(FileDialogTask(task, UiSelection::SoundFont));
             }
-            UiSelection::Play => {
-                match playback_status.state {
-                    PlaybackState::Playing => {
-                        playback_status.state = PlaybackState::Paused;
-                        let _ = audio_tx.0.send(AudioCommand::Pause);
-                    }
-                    PlaybackState::Paused | PlaybackState::Stopped => {
-                        if let (Some(midi), Some(sf)) = (&midi_path.0, &soundfont_path.0) {
-                            playback_status.state = PlaybackState::Playing;
-                            let _ = audio_tx
-                                .0
-                                .send(AudioCommand::Play(midi.clone(), sf.clone()));
-                        }
+            UiSelection::Play => match playback_status.state {
+                PlaybackState::Playing => {
+                    playback_status.state = PlaybackState::Paused;
+                    let _ = audio_tx.0.send(AudioCommand::Pause);
+                }
+                PlaybackState::Paused | PlaybackState::Stopped => {
+                    if let (Some(midi), Some(sf)) = (&midi_path.0, &soundfont_path.0) {
+                        playback_status.state = PlaybackState::Playing;
+                        let _ = audio_tx
+                            .0
+                            .send(AudioCommand::Play(midi.clone(), sf.clone()));
                     }
                 }
-            }
+            },
             UiSelection::Stop => {
                 playback_status.state = PlaybackState::Stopped;
                 let _ = audio_tx.0.send(AudioCommand::Stop);
@@ -297,63 +295,91 @@ fn load_midi_tracks(path: &PathBuf) -> Vec<MidiTrackInfo> {
         }
     };
 
+    parse_midi_tracks(&smf)
+}
+
+struct TrackParse {
+    name: Option<String>,
+    event_count: usize,
+    end_tick: u64,
+    spans: Vec<(u8, u64, u64)>,
+    note_end_tick: u64,
+}
+
+fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
+    let mut current_tick = 0u64;
+    let mut last_tick = 0u64;
+    let mut spans = Vec::new();
+    let mut active_notes: Vec<Vec<u64>> = vec![Vec::new(); 128];
+    let name = track.iter().find_map(|event| match event.kind {
+        TrackEventKind::Meta(MetaMessage::TrackName(name)) => {
+            Some(String::from_utf8_lossy(name).to_string())
+        }
+        _ => None,
+    });
+
+    for event in track.iter() {
+        current_tick += event.delta.as_int() as u64;
+        last_tick = current_tick;
+        if let TrackEventKind::Midi { message, .. } = event.kind {
+            match message {
+                midly::MidiMessage::NoteOn { key, vel } => {
+                    if vel.as_int() > 0 {
+                        active_notes[key.as_int() as usize].push(current_tick);
+                    } else if let Some(start) = active_notes[key.as_int() as usize].pop() {
+                        spans.push((key.as_int() as u8, start, current_tick));
+                    }
+                }
+                midly::MidiMessage::NoteOff { key, .. } => {
+                    if let Some(start) = active_notes[key.as_int() as usize].pop() {
+                        spans.push((key.as_int() as u8, start, current_tick));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    for (pitch, starts) in active_notes.iter_mut().enumerate() {
+        for start in starts.drain(..) {
+            spans.push((pitch as u8, start, last_tick));
+        }
+    }
+
+    let note_end_tick = spans.iter().map(|(_, _, end)| *end).max().unwrap_or(0);
+
+    TrackParse {
+        name,
+        event_count: track.len(),
+        end_tick: last_tick,
+        spans,
+        note_end_tick,
+    }
+}
+
+fn parse_midi_tracks(smf: &Smf) -> Vec<MidiTrackInfo> {
     let mut track_spans: Vec<Vec<(u8, u64, u64)>> = Vec::new();
     let mut track_info: Vec<(usize, Option<String>, usize, u64)> = Vec::new();
     let mut max_tick = 0u64;
     let mut max_note_tick = 0u64;
 
     for (index, track) in smf.tracks.iter().enumerate() {
-        let mut current_tick = 0u64;
-        let mut last_tick = 0u64;
-        let mut spans = Vec::new();
-        let mut active_notes: Vec<Vec<u64>> = vec![Vec::new(); 128];
-        let name = track.iter().find_map(|event| match event.kind {
-            TrackEventKind::Meta(MetaMessage::TrackName(name)) => {
-                Some(String::from_utf8_lossy(name).to_string())
-            }
-            _ => None,
-        });
-
-        for event in track.iter() {
-            current_tick += event.delta.as_int() as u64;
-            last_tick = current_tick;
-            if let TrackEventKind::Midi { message, .. } = event.kind {
-                match message {
-                    midly::MidiMessage::NoteOn { key, vel } => {
-                        if vel.as_int() > 0 {
-                            active_notes[key.as_int() as usize].push(current_tick);
-                        } else if let Some(start) = active_notes[key.as_int() as usize].pop() {
-                            spans.push((key.as_int() as u8, start, current_tick));
-                        }
-                    }
-                    midly::MidiMessage::NoteOff { key, .. } => {
-                        if let Some(start) = active_notes[key.as_int() as usize].pop() {
-                            spans.push((key.as_int() as u8, start, current_tick));
-                        }
-                    }
-                    _ => {}
-                }
-            }
+        let parsed = parse_track(track);
+        if parsed.note_end_tick > 0 {
+            max_note_tick = max_note_tick.max(parsed.note_end_tick);
         }
-
-        for (pitch, starts) in active_notes.iter_mut().enumerate() {
-            for start in starts.drain(..) {
-                spans.push((pitch as u8, start, last_tick));
-            }
-        }
-
-        let track_note_end = spans.iter().map(|(_, _, end)| *end).max().unwrap_or(0);
-        if track_note_end > 0 {
-            max_note_tick = max_note_tick.max(track_note_end);
-        }
-        max_tick = max_tick.max(last_tick);
-        track_spans.push(spans);
-        track_info.push((index, name, track.len(), last_tick));
+        max_tick = max_tick.max(parsed.end_tick);
+        track_spans.push(parsed.spans);
+        track_info.push((index, parsed.name, parsed.event_count, parsed.end_tick));
     }
 
     let preview_height = 64usize;
     let max_preview_width = 240usize;
-    let ruler_max_tick = if max_note_tick > 0 { max_note_tick } else { max_tick };
+    let ruler_max_tick = if max_note_tick > 0 {
+        max_note_tick
+    } else {
+        max_tick
+    };
     let ticks_per_column = ticks_per_column_for_width(ruler_max_tick, max_preview_width);
     let preview_width = (ruler_max_tick / ticks_per_column) as usize + 1;
     track_info
@@ -460,4 +486,126 @@ fn pitch_to_row_range(height: usize, min_pitch: u8, max_pitch: u8, pitch: u8) ->
     (padding as f32 + row)
         .round()
         .clamp(0.0, (height - 1) as f32) as usize
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_track_preview, note_range, parse_midi_tracks, parse_track, pitch_to_row_range,
+        str_to_keycode, ticks_per_column_for_width,
+    };
+    use crate::state::MidiTrackInfo;
+    use midly::{Format, Smf, Timing, TrackEvent, TrackEventKind};
+
+    #[test]
+    fn str_to_keycode_handles_known_keys() {
+        assert_eq!(str_to_keycode("up"), Some(bevy::prelude::KeyCode::ArrowUp));
+        assert_eq!(str_to_keycode("P"), Some(bevy::prelude::KeyCode::KeyP));
+        assert_eq!(str_to_keycode("unknown"), None);
+    }
+
+    #[test]
+    fn parse_track_collects_spans_and_name() {
+        let mut track = Vec::new();
+        track.push(TrackEvent {
+            delta: 0.into(),
+            kind: TrackEventKind::Meta(midly::MetaMessage::TrackName(b"Test")),
+        });
+        track.push(TrackEvent {
+            delta: 0.into(),
+            kind: TrackEventKind::Midi {
+                channel: 0.into(),
+                message: midly::MidiMessage::NoteOn {
+                    key: 60.into(),
+                    vel: 100.into(),
+                },
+            },
+        });
+        track.push(TrackEvent {
+            delta: 120.into(),
+            kind: TrackEventKind::Midi {
+                channel: 0.into(),
+                message: midly::MidiMessage::NoteOff {
+                    key: 60.into(),
+                    vel: 0.into(),
+                },
+            },
+        });
+
+        let parsed = parse_track(&track);
+        assert_eq!(parsed.name.as_deref(), Some("Test"));
+        assert_eq!(parsed.spans.len(), 1);
+        assert_eq!(parsed.event_count, 3);
+        assert_eq!(parsed.end_tick, 120);
+    }
+
+    #[test]
+    fn parse_midi_tracks_builds_track_info() {
+        let mut track = Vec::new();
+        track.push(TrackEvent {
+            delta: 0.into(),
+            kind: TrackEventKind::Midi {
+                channel: 0.into(),
+                message: midly::MidiMessage::NoteOn {
+                    key: 60.into(),
+                    vel: 100.into(),
+                },
+            },
+        });
+        track.push(TrackEvent {
+            delta: 120.into(),
+            kind: TrackEventKind::Midi {
+                channel: 0.into(),
+                message: midly::MidiMessage::NoteOff {
+                    key: 60.into(),
+                    vel: 0.into(),
+                },
+            },
+        });
+        let smf = Smf {
+            header: midly::Header {
+                format: Format::SingleTrack,
+                timing: Timing::Metrical(480.into()),
+            },
+            tracks: vec![track],
+        };
+
+        let tracks = parse_midi_tracks(&smf);
+        assert_eq!(tracks.len(), 1);
+        let MidiTrackInfo {
+            preview_width,
+            preview_height,
+            preview_cells,
+            ..
+        } = &tracks[0];
+        assert_eq!(*preview_height, 64);
+        assert!(preview_width > &0);
+        assert_eq!(preview_cells.len(), preview_width * preview_height);
+    }
+
+    #[test]
+    fn note_range_defaults_for_empty() {
+        assert_eq!(note_range(&[]), (60, 60));
+    }
+
+    #[test]
+    fn ticks_per_column_nonzero() {
+        assert_eq!(ticks_per_column_for_width(0, 0), 1);
+        assert_eq!(ticks_per_column_for_width(100, 1), 100);
+        assert!(ticks_per_column_for_width(100, 10) > 0);
+    }
+
+    #[test]
+    fn build_track_preview_marks_cells() {
+        let spans = vec![(60u8, 0u64, 10u64)];
+        let cells = build_track_preview(4, 4, 5, 10, 10, 60, 60, &spans);
+        assert_eq!(cells.len(), 16);
+        assert!(cells.iter().any(|cell| *cell > 0));
+    }
+
+    #[test]
+    fn pitch_to_row_range_within_bounds() {
+        let row = pitch_to_row_range(10, 40, 80, 60);
+        assert!(row < 10);
+    }
 }
