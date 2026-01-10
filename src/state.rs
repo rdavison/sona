@@ -30,7 +30,9 @@ pub struct MidiTrackInfo {
     pub index: usize,
     pub name: Option<String>,
     pub event_count: usize,
-    pub preview: String,
+    pub preview_width: usize,
+    pub preview_height: usize,
+    pub preview_cells: Vec<u16>,
 }
 
 #[derive(Resource, Default)]

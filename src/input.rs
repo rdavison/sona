@@ -264,13 +264,15 @@ fn load_midi_tracks(path: &PathBuf) -> Vec<MidiTrackInfo> {
         }
     };
 
-    let mut track_ticks: Vec<Vec<u64>> = Vec::new();
+    let mut track_spans: Vec<Vec<(u8, u64, u64)>> = Vec::new();
     let mut track_info: Vec<(usize, Option<String>, usize, u64)> = Vec::new();
     let mut max_tick = 0u64;
 
     for (index, track) in smf.tracks.iter().enumerate() {
         let mut current_tick = 0u64;
-        let mut ticks = Vec::new();
+        let mut last_tick = 0u64;
+        let mut spans = Vec::new();
+        let mut active_notes: Vec<Vec<u64>> = vec![Vec::new(); 128];
         let name = track.iter().find_map(|event| match event.kind {
             TrackEventKind::Meta(MetaMessage::TrackName(name)) => {
                 Some(String::from_utf8_lossy(name).to_string())
@@ -280,60 +282,150 @@ fn load_midi_tracks(path: &PathBuf) -> Vec<MidiTrackInfo> {
 
         for event in track.iter() {
             current_tick += event.delta.as_int() as u64;
+            last_tick = current_tick;
             if let TrackEventKind::Midi { message, .. } = event.kind {
-                if let midly::MidiMessage::NoteOn { vel, .. } = message {
-                    if vel.as_int() > 0 {
-                        ticks.push(current_tick);
+                match message {
+                    midly::MidiMessage::NoteOn { key, vel } => {
+                        if vel.as_int() > 0 {
+                            active_notes[key.as_int() as usize].push(current_tick);
+                        } else if let Some(start) =
+                            active_notes[key.as_int() as usize].pop()
+                        {
+                            spans.push((key.as_int() as u8, start, current_tick));
+                        }
                     }
+                    midly::MidiMessage::NoteOff { key, .. } => {
+                        if let Some(start) = active_notes[key.as_int() as usize].pop() {
+                            spans.push((key.as_int() as u8, start, current_tick));
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
 
-        let track_end = ticks.last().copied().unwrap_or(0);
-        max_tick = max_tick.max(track_end);
-        track_ticks.push(ticks);
-        track_info.push((index, name, track.len(), track_end));
+        for (pitch, starts) in active_notes.iter_mut().enumerate() {
+            for start in starts.drain(..) {
+                spans.push((pitch as u8, start, last_tick));
+            }
+        }
+
+        max_tick = max_tick.max(last_tick);
+        track_spans.push(spans);
+        track_info.push((index, name, track.len(), last_tick));
     }
 
-    let preview_width = 48usize;
+    let preview_height = 64usize;
+    let max_preview_width = 240usize;
+    let ticks_per_column = ticks_per_column_for_width(max_tick, max_preview_width);
+    let preview_width = (max_tick / ticks_per_column) as usize + 1;
     track_info
         .into_iter()
-        .zip(track_ticks.into_iter())
-        .map(|((index, name, event_count, track_end), ticks)| MidiTrackInfo {
-            index,
-            name,
-            event_count,
-            preview: build_track_preview(preview_width, max_tick, track_end, &ticks),
+        .zip(track_spans.into_iter())
+        .map(|((index, name, event_count, track_end), spans)| {
+            let center = duration_weighted_mean_pitch(&spans);
+            MidiTrackInfo {
+                index,
+                name,
+                event_count,
+                preview_width,
+                preview_height,
+                preview_cells: build_track_preview(
+                    preview_width,
+                    preview_height,
+                    ticks_per_column,
+                    max_tick,
+                    track_end,
+                    center,
+                    &spans,
+                ),
+            }
         })
         .collect()
 }
 
-fn build_track_preview(width: usize, max_tick: u64, track_end: u64, ticks: &[u64]) -> String {
-    if width == 0 {
-        return String::new();
+fn duration_weighted_mean_pitch(spans: &[(u8, u64, u64)]) -> f32 {
+    let mut weighted_sum = 0.0f64;
+    let mut total = 0.0f64;
+
+    for &(pitch, start, end) in spans {
+        let mut duration = end.saturating_sub(start);
+        if duration == 0 {
+            duration = 1;
+        }
+        weighted_sum += pitch as f64 * duration as f64;
+        total += duration as f64;
     }
 
-    let mut chars = vec!['.'; width];
-    let denom = max_tick.max(1) as f64;
+    if total > 0.0 {
+        (weighted_sum / total) as f32
+    } else {
+        60.0
+    }
+}
 
-    for (i, slot) in chars.iter_mut().enumerate() {
-        if i % 8 == 0 {
-            *slot = '|';
+fn ticks_per_column_for_width(max_tick: u64, max_width: usize) -> u64 {
+    if max_width == 0 {
+        return 1;
+    }
+    let denom = max_width.saturating_sub(1).max(1) as u64;
+    let mut ticks_per_column = (max_tick + denom - 1) / denom;
+    if ticks_per_column == 0 {
+        ticks_per_column = 1;
+    }
+    ticks_per_column
+}
+
+fn build_track_preview(
+    width: usize,
+    height: usize,
+    ticks_per_column: u64,
+    max_tick: u64,
+    track_end: u64,
+    center_pitch: f32,
+    spans: &[(u8, u64, u64)],
+) -> Vec<u16> {
+    if width == 0 || height == 0 {
+        return Vec::new();
+    }
+
+    let mut cells = vec![0u16; width * height];
+    let max_tick = max_tick.max(1);
+    let _ = track_end;
+    let _ = max_tick;
+
+    for &(pitch, start, end) in spans {
+        let start_col = (start / ticks_per_column) as usize;
+        let end_col = (end / ticks_per_column) as usize;
+        let row = pitch_to_row(height, center_pitch, pitch);
+        let row_offset = row * width;
+        let end_col = end_col.min(width.saturating_sub(1));
+        for col in start_col..=end_col {
+            let idx = row_offset + col;
+            if let Some(cell) = cells.get_mut(idx) {
+                *cell = cell.saturating_add(1);
+            }
         }
     }
 
-    for &tick in ticks {
-        let pos = ((tick as f64 / denom) * (width.saturating_sub(1)) as f64).round() as usize;
-        if pos < width {
-            chars[pos] = '#';
+    for col in (0..width).step_by(32) {
+        for row in 0..height {
+            let idx = row * width + col;
+            if let Some(cell) = cells.get_mut(idx) {
+                *cell = (*cell).max(1);
+            }
         }
     }
 
-    let track_pos =
-        ((track_end as f64 / denom) * (width.saturating_sub(1)) as f64).round() as usize;
-    if track_pos < width {
-        chars[track_pos] = '*';
-    }
+    cells
+}
 
-    chars.into_iter().collect()
+fn pitch_to_row(height: usize, center_pitch: f32, pitch: u8) -> usize {
+    if height == 0 {
+        return 0;
+    }
+    let half = (height as f32 - 1.0) / 2.0;
+    let scale = 128.0 / height as f32;
+    let row = (half - (pitch as f32 - center_pitch) / scale).round();
+    row.clamp(0.0, (height - 1) as f32) as usize
 }

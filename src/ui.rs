@@ -43,6 +43,10 @@ pub struct TrackRow;
 #[derive(Component)]
 pub struct TrackRowCell;
 
+const TRACK_COL_WIDTH: f32 = 220.0;
+const EVENT_COL_WIDTH: f32 = 80.0;
+const PREVIEW_CELL_SIZE: f32 = 2.0;
+
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
@@ -326,14 +330,13 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent
                                 .spawn((Node {
                                     flex_direction: FlexDirection::Row,
-                                    width: Val::Percent(100.0),
                                     column_gap: Val::Px(12.0),
                                     ..default()
                                 },))
                                 .with_children(|parent| {
                                     parent
                                         .spawn((Node {
-                                            width: Val::Percent(35.0),
+                                            width: Val::Px(TRACK_COL_WIDTH),
                                             ..default()
                                         },))
                                         .with_children(|parent| {
@@ -349,7 +352,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                         });
                                     parent
                                         .spawn((Node {
-                                            width: Val::Percent(15.0),
+                                            width: Val::Px(EVENT_COL_WIDTH),
                                             ..default()
                                         },))
                                         .with_children(|parent| {
@@ -365,7 +368,6 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                         });
                                     parent
                                         .spawn((Node {
-                                            width: Val::Percent(50.0),
                                             ..default()
                                         },))
                                         .with_children(|parent| {
@@ -469,7 +471,6 @@ fn update_tracks_list(
                 .spawn((
                     Node {
                         flex_direction: FlexDirection::Row,
-                        width: Val::Percent(100.0),
                         ..default()
                     },
                     TrackRow,
@@ -497,7 +498,6 @@ fn update_tracks_list(
                     .spawn((
                         Node {
                             flex_direction: FlexDirection::Row,
-                            width: Val::Percent(100.0),
                             column_gap: Val::Px(12.0),
                             ..default()
                         },
@@ -506,7 +506,7 @@ fn update_tracks_list(
                     .with_children(|parent| {
                         parent
                             .spawn((Node {
-                                width: Val::Percent(35.0),
+                                width: Val::Px(TRACK_COL_WIDTH),
                                 ..default()
                             },
                             TrackRowCell,
@@ -525,7 +525,7 @@ fn update_tracks_list(
                             });
                         parent
                             .spawn((Node {
-                                width: Val::Percent(15.0),
+                                width: Val::Px(EVENT_COL_WIDTH),
                                 ..default()
                             },
                             TrackRowCell,
@@ -544,33 +544,41 @@ fn update_tracks_list(
                             });
                         parent
                             .spawn((Node {
-                                width: Val::Percent(50.0),
+                                width: Val::Px(track.preview_width as f32 * PREVIEW_CELL_SIZE),
+                                height: Val::Px(track.preview_height as f32 * PREVIEW_CELL_SIZE),
+                                flex_direction: FlexDirection::Column,
+                                row_gap: Val::Px(0.0),
                                 ..default()
                             },
                             TrackRowCell,
                             ))
                             .with_children(|parent| {
-                                parent
-                                    .spawn((Node {
-                                        flex_direction: FlexDirection::Row,
-                                        column_gap: Val::Px(2.0),
-                                        ..default()
-                                    },
-                                    TrackRowCell,
-                                    ))
-                                    .with_children(|parent| {
-                                        for ch in track.preview.chars() {
-                                            parent.spawn((
-                                                Node {
-                                                    width: Val::Px(6.0),
-                                                    height: Val::Px(16.0),
-                                                    ..default()
-                                                },
-                                                BackgroundColor(preview_color(ch)),
-                                                TrackRowCell,
-                                            ));
-                                        }
-                                    });
+                                for row in 0..track.preview_height {
+                                    parent
+                                        .spawn((Node {
+                                            flex_direction: FlexDirection::Row,
+                                            column_gap: Val::Px(0.0),
+                                            ..default()
+                                        },
+                                        TrackRowCell,
+                                        ))
+                                        .with_children(|parent| {
+                                            let row_offset = row * track.preview_width;
+                                            for col in 0..track.preview_width {
+                                                let idx = row_offset + col;
+                                                let intensity = *track.preview_cells.get(idx).unwrap_or(&0);
+                                                parent.spawn((
+                                                    Node {
+                                                        width: Val::Px(PREVIEW_CELL_SIZE),
+                                                        height: Val::Px(PREVIEW_CELL_SIZE),
+                                                        ..default()
+                                                    },
+                                                    BackgroundColor(preview_color(intensity)),
+                                                    TrackRowCell,
+                                                ));
+                                            }
+                                        });
+                                }
                             });
                     });
             }
@@ -578,13 +586,13 @@ fn update_tracks_list(
     });
 }
 
-fn preview_color(ch: char) -> Color {
-    match ch {
-        '#' => Color::srgb(1.0, 0.9, 0.3),
-        '*' => Color::srgb(1.0, 1.0, 1.0),
-        '|' => Color::srgb(0.4, 0.4, 0.6),
-        _ => Color::srgb(0.15, 0.15, 0.25),
+fn preview_color(intensity: u16) -> Color {
+    if intensity == 0 {
+        return Color::srgb(0.15, 0.15, 0.25);
     }
+    let level = (intensity as f32).min(6.0);
+    let bright = 0.25 + level * 0.12;
+    Color::srgb(bright, bright * 0.9, 0.2 + level * 0.08)
 }
 
 fn update_selection_visuals(
