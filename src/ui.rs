@@ -4,8 +4,9 @@ use crate::state::{
 };
 use bevy::prelude::{
     default, AlignItems, App, AssetServer, BackgroundColor, BorderColor, Camera2d, Children, Color,
-    Commands, Component, DetectChanges, Display, Entity, FlexDirection, JustifyContent, Node,
-    Plugin, Query, Res, Startup, Text, TextColor, TextFont, UiRect, Update, Val, With, Without,
+    Commands, Component, DetectChanges, Display, Entity, FlexDirection, Font, Handle,
+    JustifyContent, Node, Plugin, Query, Res, Resource, Startup, Text, TextColor, TextFont, UiRect,
+    Update, Val, With, Without,
 };
 
 #[derive(Component)]
@@ -41,6 +42,11 @@ pub struct TracksList;
 #[derive(Component)]
 pub struct TrackRow;
 
+#[derive(Resource)]
+struct UiFonts {
+    main: Handle<Font>,
+}
+
 const TRACK_COL_WIDTH: f32 = 220.0;
 const EVENT_COL_WIDTH: f32 = 80.0;
 const PREVIEW_CELL_SIZE: f32 = 2.0;
@@ -65,6 +71,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2d::default());
 
     let font = asset_server.load("PixelifySans-Regular.ttf");
+    commands.insert_resource(UiFonts { main: font.clone() });
 
     commands
         .spawn((
@@ -214,7 +221,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("Sona"),
                                 TextFont {
-                                    font: font.clone(),
+                                            font: font.clone(),
                                     font_size: 50.0,
                                     ..default()
                                 },
@@ -223,7 +230,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("Retro MIDI player built with Bevy + OxiSynth."),
                                 TextFont {
-                                    font: font.clone(),
+                                            font: font.clone(),
                                     font_size: 26.0,
                                     ..default()
                                 },
@@ -236,7 +243,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("Controls:"),
                                 TextFont {
-                                    font: font.clone(),
+                                            font: font.clone(),
                                     font_size: 28.0,
                                     ..default()
                                 },
@@ -245,7 +252,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("Arrow keys to move, Enter to select."),
                                 TextFont {
-                                    font: font.clone(),
+                                            font: font.clone(),
                                     font_size: 24.0,
                                     ..default()
                                 },
@@ -254,7 +261,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("P to play/pause, S to stop."),
                                 TextFont {
-                                    font: font.clone(),
+                                            font: font.clone(),
                                     font_size: 24.0,
                                     ..default()
                                 },
@@ -267,7 +274,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("Press ? to return to the splash page."),
                                 TextFont {
-                                    font: font.clone(),
+                                            font: font.clone(),
                                     font_size: 24.0,
                                     ..default()
                                 },
@@ -306,7 +313,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("Tracks"),
                                 TextFont {
-                                    font: font.clone(),
+                                            font: font.clone(),
                                     font_size: 40.0,
                                     ..default()
                                 },
@@ -315,7 +322,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             parent.spawn((
                                 Text::new("Press T to return to the splash page."),
                                 TextFont {
-                                    font: font.clone(),
+                                            font: font.clone(),
                                     font_size: 22.0,
                                     ..default()
                                 },
@@ -341,7 +348,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                             parent.spawn((
                                                 Text::new("Track"),
                                                 TextFont {
-                                                    font: font.clone(),
+                                            font: font.clone(),
                                                     font_size: 22.0,
                                                     ..default()
                                                 },
@@ -357,7 +364,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                             parent.spawn((
                                                 Text::new("Events"),
                                                 TextFont {
-                                                    font: font.clone(),
+                                            font: font.clone(),
                                                     font_size: 22.0,
                                                     ..default()
                                                 },
@@ -370,7 +377,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                                             parent.spawn((
                                                 Text::new("Preview"),
                                                 TextFont {
-                                                    font: font.clone(),
+                                            font: font.clone(),
                                                     font_size: 22.0,
                                                     ..default()
                                                 },
@@ -438,13 +445,13 @@ fn update_tracks_list(
     list_query: Query<Entity, With<TracksList>>,
     track_row_query: Query<Entity, With<TrackRow>>,
     children_query: Query<&Children>,
-    asset_server: Res<AssetServer>,
+    fonts: Res<UiFonts>,
 ) {
     if !midi_tracks.is_changed() && !track_row_query.is_empty() {
         return;
     }
 
-    let font = asset_server.load("PixelifySans-Regular.ttf");
+    let font = fonts.main.clone();
 
     let mut list_iter = list_query.iter();
     let Some(list_entity) = list_iter.next() else {
@@ -477,7 +484,7 @@ fn update_tracks_list(
                     parent.spawn((
                         Text::new("No tracks loaded."),
                         TextFont {
-                            font: font.clone(),
+                                            font: font.clone(),
                             font_size: 24.0,
                             ..default()
                         },
