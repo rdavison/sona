@@ -218,14 +218,14 @@ fn handle_input(
 
     if ui_state.page != UiPage::Splash {
         if ui_state.page == UiPage::Tracks {
-            if keyboard_input.just_pressed(KeyCode::Tab) {
+            if keyboard_input.just_pressed(KeyCode::ArrowUp)
+                || keyboard_input.just_pressed(KeyCode::ArrowDown)
+            {
                 let track_count = midi_tracks.0.len();
                 if track_count == 0 {
                     return;
                 }
-                let shift = keyboard_input.pressed(KeyCode::ShiftLeft)
-                    || keyboard_input.pressed(KeyCode::ShiftRight);
-                if shift {
+                if keyboard_input.just_pressed(KeyCode::ArrowUp) {
                     tracks_focus.index = (tracks_focus.index + track_count - 1) % track_count;
                 } else {
                     tracks_focus.index = (tracks_focus.index + 1) % track_count;
