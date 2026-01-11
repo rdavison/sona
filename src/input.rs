@@ -101,28 +101,32 @@ fn keyboard_navigation(
         ui_state.selection = match ui_state.selection {
             UiSelection::MidiFile => UiSelection::SoundFont,
             UiSelection::SoundFont => UiSelection::Play,
-            _ => ui_state.selection,
+            UiSelection::Play | UiSelection::Stop | UiSelection::Rewind => ui_state.selection,
         };
     } else if keyboard_input.just_pressed(up) {
         println!("Key: Up");
         ui_state.selection = match ui_state.selection {
             UiSelection::SoundFont => UiSelection::MidiFile,
             UiSelection::Play | UiSelection::Stop | UiSelection::Rewind => UiSelection::SoundFont,
-            _ => ui_state.selection,
+            UiSelection::MidiFile => ui_state.selection,
         };
     } else if keyboard_input.just_pressed(right) {
         println!("Key: Right");
         ui_state.selection = match ui_state.selection {
             UiSelection::Play => UiSelection::Stop,
             UiSelection::Stop => UiSelection::Rewind,
-            _ => ui_state.selection,
+            UiSelection::MidiFile | UiSelection::SoundFont | UiSelection::Rewind => {
+                ui_state.selection
+            }
         };
     } else if keyboard_input.just_pressed(left) {
         println!("Key: Left");
         ui_state.selection = match ui_state.selection {
             UiSelection::Rewind => UiSelection::Stop,
             UiSelection::Stop => UiSelection::Play,
-            _ => ui_state.selection,
+            UiSelection::MidiFile | UiSelection::SoundFont | UiSelection::Play => {
+                ui_state.selection
+            }
         };
     }
 }
