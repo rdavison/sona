@@ -22,24 +22,32 @@ pub struct Keybindings {
 
 impl Keybindings {
     pub fn get_keycode(&self, action: &str) -> Option<KeyCode> {
-        self.bindings.get(action).and_then(|s| Self::of_str(s))
+        self.bindings
+            .get(action)
+            .and_then(|s| match Self::of_str(s) {
+                Ok(res) => Some(res),
+                Err(e) => {
+                    eprintln!("WARNING: {}", e);
+                    None
+                }
+            })
     }
 
-    fn of_str(s: &str) -> Option<KeyCode> {
+    fn of_str(s: &str) -> Result<KeyCode, String> {
         match s.to_lowercase().as_str() {
-            "up" | "arrowup" => Some(KeyCode::ArrowUp),
-            "down" | "arrowdown" => Some(KeyCode::ArrowDown),
-            "left" | "arrowleft" => Some(KeyCode::ArrowLeft),
-            "right" | "arrowright" => Some(KeyCode::ArrowRight),
-            "enter" | "return" => Some(KeyCode::Enter),
-            "space" => Some(KeyCode::Space),
-            "tab" => Some(KeyCode::Tab),
-            "backspace" => Some(KeyCode::Backspace),
-            "escape" | "esc" => Some(KeyCode::Escape),
-            "p" => Some(KeyCode::KeyP),
-            "s" => Some(KeyCode::KeyS),
-            "t" => Some(KeyCode::KeyT),
-            _ => None,
+            "up" | "arrowup" => Ok(KeyCode::ArrowUp),
+            "down" | "arrowdown" => Ok(KeyCode::ArrowDown),
+            "left" | "arrowleft" => Ok(KeyCode::ArrowLeft),
+            "right" | "arrowright" => Ok(KeyCode::ArrowRight),
+            "enter" | "return" => Ok(KeyCode::Enter),
+            "space" => Ok(KeyCode::Space),
+            "tab" => Ok(KeyCode::Tab),
+            "backspace" => Ok(KeyCode::Backspace),
+            "escape" | "esc" => Ok(KeyCode::Escape),
+            "p" => Ok(KeyCode::KeyP),
+            "s" => Ok(KeyCode::KeyS),
+            "t" => Ok(KeyCode::KeyT),
+            other => Err(format!("Unable to parse Keybinding: {}", other)),
         }
     }
 
@@ -83,18 +91,20 @@ fn keyboard_navigation(
         return;
     }
 
-    let up = keybindings
-        .get_keycode("NavigateUp")
-        .unwrap_or(KeyCode::ArrowUp);
-    let down = keybindings
-        .get_keycode("NavigateDown")
-        .unwrap_or(KeyCode::ArrowDown);
-    let left = keybindings
-        .get_keycode("NavigateLeft")
-        .unwrap_or(KeyCode::ArrowLeft);
-    let right = keybindings
-        .get_keycode("NavigateRight")
-        .unwrap_or(KeyCode::ArrowRight);
+    let lookup_with_default = |s: &str, default: KeyCode| -> KeyCode {
+        match keybindings.get_keycode(s) {
+            Some(kc) => kc,
+            None => {
+                eprintln!("Using default keycode {:?} for action {}", default, s);
+                default
+            }
+        }
+    };
+
+    let up = lookup_with_default("NavigateUp", KeyCode::ArrowUp);
+    let down = lookup_with_default("NavigateDown", KeyCode::ArrowDown);
+    let left = lookup_with_default("NavigateLeft", KeyCode::ArrowLeft);
+    let right = lookup_with_default("NavigateRight", KeyCode::ArrowRight);
 
     if keyboard_input.just_pressed(down) {
         println!("Key: Down");
