@@ -43,7 +43,7 @@ impl Keybindings {
         }
     }
 
-    pub fn load(mut keybindings: ResMut<Keybindings>) {
+    pub fn load_from_conf(mut keybindings: ResMut<Keybindings>) {
         println!("Loading keybindings...");
         if let Ok(content) = std::fs::read_to_string("keybindings.toml") {
             if let Ok(config) = toml::from_str::<Keybindings>(&content) {
@@ -66,7 +66,7 @@ pub struct InputPlugin;
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Keybindings>()
-            .add_systems(Startup, Keybindings::load)
+            .add_systems(Startup, Keybindings::load_from_conf)
             .add_systems(
                 Update,
                 (keyboard_navigation, handle_input, poll_file_dialogs),
