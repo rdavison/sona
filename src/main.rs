@@ -6,8 +6,8 @@ mod ui;
 use crate::audio::AudioPlugin;
 use crate::input::{load_midi_tracks, InputPlugin};
 use crate::state::{
-    MidiFilePath, MidiTracks, PlaybackStatus, SoundFontPath, TrackDetailsPopup, TracksFocus,
-    UiState,
+    MidiFilePath, MidiTracks, PianoRollViewState, PlaybackStatus, SoundFontPath, TrackDetailsPopup,
+    TracksFocus, UiState,
 };
 use crate::ui::UiPlugin;
 use bevy::prelude::{
@@ -55,6 +55,7 @@ fn main() {
         .insert_resource(SoundFontPath(cli.soundfont))
         .init_resource::<PlaybackStatus>()
         .init_resource::<TrackDetailsPopup>()
+        .init_resource::<PianoRollViewState>()
         .init_resource::<TracksFocus>()
         .add_plugins(AudioPlugin)
         .add_plugins(InputPlugin)

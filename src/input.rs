@@ -1,7 +1,7 @@
 use crate::audio::{AudioCommand, AudioSender};
 use crate::state::{
-    MidiFilePath, MidiTrackInfo, MidiTracks, PlaybackState, PlaybackStatus, SoundFontPath,
-    TrackDetailsPopup, TracksFocus, UiPage, UiSelection, UiState,
+    MidiFilePath, MidiTrackInfo, MidiTracks, NoteSpan, PianoRollViewState, PlaybackState,
+    PlaybackStatus, SoundFontPath, TrackDetailsPopup, TracksFocus, UiPage, UiSelection, UiState,
 };
 use bevy::prelude::{
     App, ButtonInput, Commands, Component, Entity, KeyCode, Plugin, Query, Res, ResMut, Resource,
@@ -139,7 +139,57 @@ fn handle_input(
     mut tracks_focus: ResMut<TracksFocus>,
     midi_tracks: Res<MidiTracks>,
     mut track_popup: ResMut<TrackDetailsPopup>,
+    mut piano_roll: ResMut<PianoRollViewState>,
 ) {
+    if ui_state.page == UiPage::PianoRoll {
+        if keyboard_input.just_pressed(KeyCode::Escape) {
+            ui_state.page = UiPage::Tracks;
+        }
+        if let Some(track) = midi_tracks.0.get(tracks_focus.index) {
+            let step_ticks = track.ticks_per_beat.max(1) as f32;
+            let step_pitch = 12.0;
+            if keyboard_input.just_pressed(KeyCode::ArrowLeft) {
+                piano_roll.offset_ticks -= step_ticks;
+            }
+            if keyboard_input.just_pressed(KeyCode::ArrowRight) {
+                piano_roll.offset_ticks += step_ticks;
+            }
+            let shift = keyboard_input.pressed(KeyCode::ShiftLeft)
+                || keyboard_input.pressed(KeyCode::ShiftRight);
+            if shift {
+                if keyboard_input.just_pressed(KeyCode::ArrowUp) {
+                    piano_roll.zoom_y = (piano_roll.zoom_y * 1.25).min(16.0);
+                }
+                if keyboard_input.just_pressed(KeyCode::ArrowDown) {
+                    piano_roll.zoom_y = (piano_roll.zoom_y / 1.25).max(1.0);
+                }
+            } else {
+                if keyboard_input.just_pressed(KeyCode::ArrowUp) {
+                    piano_roll.offset_pitch -= step_pitch;
+                }
+                if keyboard_input.just_pressed(KeyCode::ArrowDown) {
+                    piano_roll.offset_pitch += step_pitch;
+                }
+            }
+            if keyboard_input.just_pressed(KeyCode::Equal)
+                || keyboard_input.just_pressed(KeyCode::NumpadAdd)
+            {
+                piano_roll.zoom_x = (piano_roll.zoom_x * 1.25).min(16.0);
+            }
+            if keyboard_input.just_pressed(KeyCode::Minus)
+                || keyboard_input.just_pressed(KeyCode::NumpadSubtract)
+            {
+                piano_roll.zoom_x = (piano_roll.zoom_x / 1.25).max(1.0);
+            }
+        }
+        return;
+    }
+
+    if ui_state.page == UiPage::Tracks && keyboard_input.just_pressed(KeyCode::KeyP) {
+        ui_state.page = UiPage::PianoRoll;
+        return;
+    }
+
     let about_toggle = keyboard_input.just_pressed(KeyCode::Slash)
         && (keyboard_input.pressed(KeyCode::ShiftLeft)
             || keyboard_input.pressed(KeyCode::ShiftRight));
@@ -148,6 +198,7 @@ fn handle_input(
             UiPage::Splash => UiPage::About,
             UiPage::About => UiPage::Splash,
             UiPage::Tracks => UiPage::About,
+            UiPage::PianoRoll => UiPage::About,
         };
         return;
     }
@@ -316,7 +367,7 @@ struct TrackParse {
     name: Option<String>,
     event_count: usize,
     end_tick: u64,
-    spans: Vec<(u8, u64, u64)>,
+    spans: Vec<NoteSpan>,
     note_end_tick: u64,
     channels: Vec<u8>,
     programs: Vec<(u8, u8)>,
@@ -356,12 +407,20 @@ fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
                         if vel.as_int() > 0 {
                             active_notes[key.as_int() as usize].push(current_tick);
                         } else if let Some(start) = active_notes[key.as_int() as usize].pop() {
-                            spans.push((key.as_int() as u8, start, current_tick));
+                            spans.push(NoteSpan {
+                                pitch: key.as_int() as u8,
+                                start,
+                                end: current_tick,
+                            });
                         }
                     }
                     midly::MidiMessage::NoteOff { key, .. } => {
                         if let Some(start) = active_notes[key.as_int() as usize].pop() {
-                            spans.push((key.as_int() as u8, start, current_tick));
+                            spans.push(NoteSpan {
+                                pitch: key.as_int() as u8,
+                                start,
+                                end: current_tick,
+                            });
                         }
                     }
                     midly::MidiMessage::ProgramChange { program } => {
@@ -396,11 +455,15 @@ fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
 
     for (pitch, starts) in active_notes.iter_mut().enumerate() {
         for start in starts.drain(..) {
-            spans.push((pitch as u8, start, last_tick));
+            spans.push(NoteSpan {
+                pitch: pitch as u8,
+                start,
+                end: last_tick,
+            });
         }
     }
 
-    let note_end_tick = spans.iter().map(|(_, _, end)| *end).max().unwrap_or(0);
+    let note_end_tick = spans.iter().map(|span| span.end).max().unwrap_or(0);
 
     let programs = programs.into_iter().collect();
     let banks = banks
@@ -427,7 +490,12 @@ fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
 }
 
 fn parse_midi_tracks(smf: &Smf) -> Vec<MidiTrackInfo> {
-    let mut track_spans: Vec<Vec<(u8, u64, u64)>> = Vec::new();
+    let ticks_per_beat = match smf.header.timing {
+        midly::Timing::Metrical(ticks) => ticks.as_int() as u32,
+        _ => 480,
+    }
+    .max(1);
+    let mut track_spans: Vec<Vec<NoteSpan>> = Vec::new();
     let mut track_info: Vec<TrackInfo> = Vec::new();
     let mut max_tick = 0u64;
     let mut max_note_tick = 0u64;
@@ -468,11 +536,22 @@ fn parse_midi_tracks(smf: &Smf) -> Vec<MidiTrackInfo> {
         .map(|(info, spans)| {
             let (min_pitch, max_pitch) = note_range(&spans);
             let note_count = spans.len();
+            let preview_cells = build_track_preview(
+                preview_width,
+                preview_height,
+                ticks_per_column,
+                ruler_max_tick,
+                info.end_tick,
+                min_pitch,
+                max_pitch,
+                &spans,
+            );
             MidiTrackInfo {
                 index: info.index,
                 name: info.name,
                 event_count: info.event_count,
                 end_tick: info.end_tick,
+                ticks_per_beat,
                 note_count,
                 min_pitch,
                 max_pitch,
@@ -482,18 +561,10 @@ fn parse_midi_tracks(smf: &Smf) -> Vec<MidiTrackInfo> {
                 tempo_changes: info.tempo_changes,
                 time_signature: info.time_signature,
                 key_signature: info.key_signature,
+                note_spans: spans,
                 preview_width,
                 preview_height,
-                preview_cells: build_track_preview(
-                    preview_width,
-                    preview_height,
-                    ticks_per_column,
-                    ruler_max_tick,
-                    info.end_tick,
-                    min_pitch,
-                    max_pitch,
-                    &spans,
-                ),
+                preview_cells,
             }
         })
         .collect()
@@ -512,12 +583,12 @@ struct TrackInfo {
     key_signature: Option<(i8, bool)>,
 }
 
-fn note_range(spans: &[(u8, u64, u64)]) -> (u8, u8) {
+fn note_range(spans: &[NoteSpan]) -> (u8, u8) {
     let mut min_pitch = 127u8;
     let mut max_pitch = 0u8;
-    for &(pitch, _, _) in spans {
-        min_pitch = min_pitch.min(pitch);
-        max_pitch = max_pitch.max(pitch);
+    for span in spans {
+        min_pitch = min_pitch.min(span.pitch);
+        max_pitch = max_pitch.max(span.pitch);
     }
     if spans.is_empty() {
         (60, 60)
@@ -546,7 +617,7 @@ fn build_track_preview(
     track_end: u64,
     min_pitch: u8,
     max_pitch: u8,
-    spans: &[(u8, u64, u64)],
+    spans: &[NoteSpan],
 ) -> Vec<u16> {
     if width == 0 || height == 0 {
         return Vec::new();
@@ -557,7 +628,10 @@ fn build_track_preview(
     let _ = track_end;
     let _ = max_tick;
 
-    for &(pitch, start, end) in spans {
+    for span in spans {
+        let pitch = span.pitch;
+        let start = span.start;
+        let end = span.end;
         let start_col = (start / ticks_per_column) as usize;
         let end_col = (end / ticks_per_column) as usize;
         let row = pitch_to_row_range(height, min_pitch, max_pitch, pitch);
@@ -599,6 +673,7 @@ mod tests {
         str_to_keycode, ticks_per_column_for_width,
     };
     use crate::state::MidiTrackInfo;
+    use crate::state::NoteSpan;
     use midly::{Format, Smf, Timing, TrackEvent, TrackEventKind};
 
     #[test]
@@ -691,6 +766,7 @@ mod tests {
             preview_height,
             preview_cells,
             end_tick,
+            ticks_per_beat,
             note_count,
             min_pitch,
             max_pitch,
@@ -700,12 +776,14 @@ mod tests {
             tempo_changes,
             time_signature,
             key_signature,
+            note_spans,
             ..
         } = &tracks[0];
         assert_eq!(*preview_height, 64);
         assert!(preview_width > &0);
         assert_eq!(preview_cells.len(), preview_width * preview_height);
         assert_eq!(*end_tick, 120);
+        assert_eq!(*ticks_per_beat, 480);
         assert_eq!(*note_count, 1);
         assert_eq!(*min_pitch, 60);
         assert_eq!(*max_pitch, 60);
@@ -715,6 +793,7 @@ mod tests {
         assert_eq!(*tempo_changes, 0);
         assert!(time_signature.is_none());
         assert!(key_signature.is_none());
+        assert_eq!(note_spans.len(), 1);
     }
 
     #[test]
@@ -731,7 +810,11 @@ mod tests {
 
     #[test]
     fn build_track_preview_marks_cells() {
-        let spans = vec![(60u8, 0u64, 10u64)];
+        let spans = vec![NoteSpan {
+            pitch: 60,
+            start: 0,
+            end: 10,
+        }];
         let cells = build_track_preview(4, 4, 5, 10, 10, 60, 60, &spans);
         assert_eq!(cells.len(), 16);
         assert!(cells.iter().any(|cell| *cell > 0));

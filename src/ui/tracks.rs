@@ -52,6 +52,7 @@ enum TrackDetailsFieldKind {
     Name,
     Events,
     EndTick,
+    TicksPerBeat,
     NoteCount,
     PitchRange,
     Channels,
@@ -425,6 +426,18 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                             },
                         ));
                         parent.spawn((
+                            Text::new("Ticks per beat:"),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TrackDetailsField {
+                                field: TrackDetailsFieldKind::TicksPerBeat,
+                            },
+                        ));
+                        parent.spawn((
                             Text::new("Notes:"),
                             TextFont {
                                 font: font.clone(),
@@ -557,6 +570,15 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                         ));
                         parent.spawn((
                             Text::new("Press T to return to the splash page."),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 22.0,
+                                ..default()
+                            },
+                            TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                        ));
+                        parent.spawn((
+                            Text::new("Press P to open the piano roll."),
                             TextFont {
                                 font: font.clone(),
                                 font_size: 22.0,
@@ -1119,6 +1141,9 @@ pub(super) fn update_track_details_popup(
             TrackDetailsFieldKind::EndTick => track
                 .map(|t| format!("End tick: {}", t.end_tick))
                 .unwrap_or_else(|| "End tick: -".to_string()),
+            TrackDetailsFieldKind::TicksPerBeat => track
+                .map(|t| format!("Ticks per beat: {}", t.ticks_per_beat))
+                .unwrap_or_else(|| "Ticks per beat: -".to_string()),
             TrackDetailsFieldKind::NoteCount => track
                 .map(|t| format!("Notes: {}", t.note_count))
                 .unwrap_or_else(|| "Notes: -".to_string()),

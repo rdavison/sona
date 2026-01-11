@@ -17,6 +17,7 @@ pub enum UiPage {
     Splash,
     About,
     Tracks,
+    PianoRoll,
 }
 
 #[derive(Resource, Default)]
@@ -31,6 +32,7 @@ pub struct MidiTrackInfo {
     pub name: Option<String>,
     pub event_count: usize,
     pub end_tick: u64,
+    pub ticks_per_beat: u32,
     pub note_count: usize,
     pub min_pitch: u8,
     pub max_pitch: u8,
@@ -40,9 +42,17 @@ pub struct MidiTrackInfo {
     pub tempo_changes: usize,
     pub time_signature: Option<(u8, u8)>,
     pub key_signature: Option<(i8, bool)>,
+    pub note_spans: Vec<NoteSpan>,
     pub preview_width: usize,
     pub preview_height: usize,
     pub preview_cells: Vec<u16>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NoteSpan {
+    pub pitch: u8,
+    pub start: u64,
+    pub end: u64,
 }
 
 #[derive(Resource, Default)]
@@ -76,4 +86,23 @@ pub struct TracksFocus {
 pub struct TrackDetailsPopup {
     pub visible: bool,
     pub track_index: usize,
+}
+
+#[derive(Resource)]
+pub struct PianoRollViewState {
+    pub zoom_x: f32,
+    pub zoom_y: f32,
+    pub offset_ticks: f32,
+    pub offset_pitch: f32,
+}
+
+impl Default for PianoRollViewState {
+    fn default() -> Self {
+        Self {
+            zoom_x: 1.0,
+            zoom_y: 1.0,
+            offset_ticks: 0.0,
+            offset_pitch: 0.0,
+        }
+    }
 }

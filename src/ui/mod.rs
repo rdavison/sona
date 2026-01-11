@@ -1,4 +1,5 @@
 mod about;
+mod piano;
 mod splash;
 mod tracks;
 
@@ -16,6 +17,9 @@ pub struct AboutPageRoot;
 
 #[derive(Component)]
 pub struct TracksPageRoot;
+
+#[derive(Component)]
+pub struct PianoRollPageRoot;
 
 #[derive(Resource)]
 pub(super) struct UiFonts {
@@ -40,6 +44,7 @@ impl Plugin for UiPlugin {
                     tracks::toggle_debug_overlay,
                     tracks::update_tracks_focus_visuals,
                     tracks::update_debug_overlay,
+                    piano::update_piano_roll_view,
                 ),
             )
             .init_resource::<tracks::DebugOverlayState>()
@@ -67,6 +72,7 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     splash::spawn_splash_page(&mut commands, root, font.clone());
     about::spawn_about_page(&mut commands, root, font.clone());
     tracks::spawn_tracks_page(&mut commands, root, font.clone());
+    piano::spawn_piano_roll_page(&mut commands, root, font.clone());
     println!("UI setup complete.");
 }
 
@@ -80,6 +86,15 @@ fn update_page_visibility(
             With<TracksPageRoot>,
             Without<SplashPageRoot>,
             Without<AboutPageRoot>,
+        ),
+    >,
+    mut piano_query: Query<
+        &mut Node,
+        (
+            With<PianoRollPageRoot>,
+            Without<SplashPageRoot>,
+            Without<AboutPageRoot>,
+            Without<TracksPageRoot>,
         ),
     >,
 ) {
@@ -98,6 +113,11 @@ fn update_page_visibility(
     } else {
         Display::None
     };
+    let piano_display = if ui_state.page == UiPage::PianoRoll {
+        Display::Flex
+    } else {
+        Display::None
+    };
 
     for mut node in &mut splash_query {
         node.display = splash_display;
@@ -107,5 +127,8 @@ fn update_page_visibility(
     }
     for mut node in &mut tracks_query {
         node.display = tracks_display;
+    }
+    for mut node in &mut piano_query {
+        node.display = piano_display;
     }
 }
