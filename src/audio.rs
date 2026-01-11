@@ -289,14 +289,18 @@ fn parse_smf(smf: &Smf) -> ParsedMidi {
                                 max_note_tick = max_note_tick.max(current_tick);
                             }
                         }
-                        _ => {}
+                        midly::MidiMessage::Aftertouch { .. }
+                        | midly::MidiMessage::Controller { .. }
+                        | midly::MidiMessage::ProgramChange { .. }
+                        | midly::MidiMessage::ChannelAftertouch { .. }
+                        | midly::MidiMessage::PitchBend { .. } => {}
                     }
                     all_events.push((current_tick, midi_message_to_event(channel, message)));
                 }
                 TrackEventKind::Meta(midly::MetaMessage::Tempo(us)) => {
                     tempo_events.push((current_tick, us.as_int()));
                 }
-                _ => {}
+                TrackEventKind::SysEx(_) | TrackEventKind::Escape(_) => {}
             }
         }
         if active_notes.iter().any(|notes| !notes.is_empty()) {
@@ -318,7 +322,7 @@ fn build_playback_schedule_from_smf(smf: &Smf, sample_rate: u32) -> PlaybackSche
     let parsed = parse_smf(smf);
     let ticks_per_beat = match smf.header.timing {
         midly::Timing::Metrical(ticks) => ticks.as_int() as f64,
-        _ => 480.0,
+        midly::Timing::Timecode(_, _) => 480.0,
     }
     .max(1.0);
     let tempo_segments = build_tempo_segments(&parsed.tempo_events, ticks_per_beat);

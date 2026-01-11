@@ -365,7 +365,7 @@ fn poll_file_dialogs(
                         midi_tracks.0 = load_midi_tracks(&path);
                     }
                     UiSelection::SoundFont => soundfont_path.0 = Some(path),
-                    _ => {}
+                    UiSelection::Play | UiSelection::Stop | UiSelection::Rewind => {}
                 }
             }
             commands.entity(entity).despawn();
@@ -422,7 +422,29 @@ fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
         TrackEventKind::Meta(MetaMessage::TrackName(name)) => {
             Some(String::from_utf8_lossy(name).to_string())
         }
-        _ => None,
+        TrackEventKind::Meta(
+            MetaMessage::TrackNumber(_)
+            | MetaMessage::Text(_)
+            | MetaMessage::Copyright(_)
+            | MetaMessage::InstrumentName(_)
+            | MetaMessage::Lyric(_)
+            | MetaMessage::Marker(_)
+            | MetaMessage::CuePoint(_)
+            | MetaMessage::ProgramName(_)
+            | MetaMessage::DeviceName(_)
+            | MetaMessage::MidiChannel(_)
+            | MetaMessage::MidiPort(_)
+            | MetaMessage::EndOfTrack
+            | MetaMessage::Tempo(_)
+            | MetaMessage::SmpteOffset(_)
+            | MetaMessage::TimeSignature(_, _, _, _)
+            | MetaMessage::KeySignature(_, _)
+            | MetaMessage::SequencerSpecific(_)
+            | MetaMessage::Unknown(_, _),
+        )
+        | TrackEventKind::Midi { .. }
+        | TrackEventKind::SysEx(_)
+        | TrackEventKind::Escape(_) => None,
     });
 
     for event in track.iter() {
@@ -444,7 +466,7 @@ fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
                             });
                         }
                     }
-                    midly::MidiMessage::NoteOff { key, .. } => {
+                    midly::MidiMessage::NoteOff { key, vel: _ } => {
                         if let Some(start) = active_notes[key.as_int() as usize].pop() {
                             spans.push(NoteSpan {
                                 pitch: key.as_int() as u8,
@@ -467,7 +489,9 @@ fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
                             }
                         }
                     }
-                    _ => {}
+                    midly::MidiMessage::Aftertouch { .. }
+                    | midly::MidiMessage::ChannelAftertouch { .. }
+                    | midly::MidiMessage::PitchBend { .. } => {}
                 }
             }
             TrackEventKind::Meta(MetaMessage::Tempo(_)) => {
@@ -479,7 +503,26 @@ fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
             TrackEventKind::Meta(MetaMessage::KeySignature(sharps, is_minor)) => {
                 key_signature = Some((sharps, is_minor));
             }
-            _ => {}
+            TrackEventKind::Meta(
+                MetaMessage::TrackName(_)
+                | MetaMessage::TrackNumber(_)
+                | MetaMessage::Text(_)
+                | MetaMessage::Copyright(_)
+                | MetaMessage::InstrumentName(_)
+                | MetaMessage::Lyric(_)
+                | MetaMessage::Marker(_)
+                | MetaMessage::CuePoint(_)
+                | MetaMessage::ProgramName(_)
+                | MetaMessage::DeviceName(_)
+                | MetaMessage::MidiChannel(_)
+                | MetaMessage::MidiPort(_)
+                | MetaMessage::EndOfTrack
+                | MetaMessage::SmpteOffset(_)
+                | MetaMessage::SequencerSpecific(_)
+                | MetaMessage::Unknown(_, _),
+            )
+            | TrackEventKind::SysEx(_)
+            | TrackEventKind::Escape(_) => {}
         }
     }
 
@@ -522,7 +565,7 @@ fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
 fn parse_midi_tracks(smf: &Smf) -> Vec<MidiTrackInfo> {
     let ticks_per_beat = match smf.header.timing {
         midly::Timing::Metrical(ticks) => ticks.as_int() as u32,
-        _ => 480,
+        midly::Timing::Timecode(_, _) => 480,
     }
     .max(1);
     let mut track_spans: Vec<Vec<NoteSpan>> = Vec::new();
