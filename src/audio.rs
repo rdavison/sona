@@ -300,7 +300,28 @@ fn parse_smf(smf: &Smf) -> ParsedMidi {
                 TrackEventKind::Meta(midly::MetaMessage::Tempo(us)) => {
                     tempo_events.push((current_tick, us.as_int()));
                 }
-                TrackEventKind::SysEx(_) | TrackEventKind::Escape(_) => {}
+                TrackEventKind::Meta(
+                    midly::MetaMessage::TrackName(_)
+                    | midly::MetaMessage::TrackNumber(_)
+                    | midly::MetaMessage::Text(_)
+                    | midly::MetaMessage::Copyright(_)
+                    | midly::MetaMessage::InstrumentName(_)
+                    | midly::MetaMessage::Lyric(_)
+                    | midly::MetaMessage::Marker(_)
+                    | midly::MetaMessage::CuePoint(_)
+                    | midly::MetaMessage::ProgramName(_)
+                    | midly::MetaMessage::DeviceName(_)
+                    | midly::MetaMessage::MidiChannel(_)
+                    | midly::MetaMessage::MidiPort(_)
+                    | midly::MetaMessage::EndOfTrack
+                    | midly::MetaMessage::SmpteOffset(_)
+                    | midly::MetaMessage::TimeSignature(_, _, _, _)
+                    | midly::MetaMessage::KeySignature(_, _)
+                    | midly::MetaMessage::SequencerSpecific(_)
+                    | midly::MetaMessage::Unknown(_, _),
+                )
+                | TrackEventKind::SysEx(_)
+                | TrackEventKind::Escape(_) => {}
             }
         }
         if active_notes.iter().any(|notes| !notes.is_empty()) {
