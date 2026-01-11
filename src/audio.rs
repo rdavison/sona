@@ -63,6 +63,29 @@ impl AudioState {
         Some((tick as f64 / max_tick as f64).clamp(0.0, 1.0) as f32)
     }
 
+    pub fn current_tick(&self) -> Option<u64> {
+        let max_tick = self.max_tick.load(Ordering::Relaxed);
+        if max_tick == 0 {
+            return None;
+        }
+
+        let samples = self.samples_played.load(Ordering::Relaxed);
+        let last_sample = self.last_event_sample.load(Ordering::Relaxed);
+        let last_tick = self.last_event_tick.load(Ordering::Relaxed);
+        let next_sample = self.next_event_sample.load(Ordering::Relaxed);
+        let next_tick = self.next_event_tick.load(Ordering::Relaxed);
+
+        let tick = if next_sample > last_sample && next_tick >= last_tick {
+            let denom = (next_sample - last_sample) as f64;
+            let t = ((samples.saturating_sub(last_sample)) as f64 / denom).clamp(0.0, 1.0);
+            (last_tick as f64 + t * (next_tick - last_tick) as f64).round() as u64
+        } else {
+            last_tick
+        };
+
+        Some(tick.min(max_tick))
+    }
+
     pub fn debug_state(&self) -> AudioDebugState {
         AudioDebugState {
             samples_played: self.samples_played.load(Ordering::Relaxed),

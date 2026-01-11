@@ -1,4 +1,5 @@
 use super::PianoRollPageRoot;
+use crate::audio::AudioState;
 use crate::state::{MidiTracks, PianoRollViewState, TracksFocus, UiPage, UiState};
 use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
@@ -15,6 +16,11 @@ pub(super) struct PianoRollView {
     track_index: usize,
     image: Handle<Image>,
     last_size: (u32, u32),
+}
+
+#[derive(Component)]
+pub(super) struct PianoRollRuler {
+    image_entity: bevy::prelude::Entity,
 }
 
 fn piano_background_color() -> Color {
@@ -57,6 +63,26 @@ fn clamp_offset_ticks(offset: f32, end_tick: u64, zoom_x: f32) -> f32 {
     let visible = compute_visible_ticks(end_tick, zoom_x);
     let max_offset = (end_tick.max(1) as f32 - visible).max(0.0);
     offset.clamp(0.0, max_offset)
+}
+
+fn ruler_left_px(
+    tick: u64,
+    track_end: u64,
+    view: &PianoRollViewState,
+    width_px: f32,
+) -> Option<f32> {
+    if width_px <= 1.0 {
+        return None;
+    }
+    let visible_ticks = compute_visible_ticks(track_end, view.zoom_x);
+    let offset_ticks = clamp_offset_ticks(view.offset_ticks, track_end, view.zoom_x);
+    let tick = tick as f32;
+    if tick < offset_ticks || tick > offset_ticks + visible_ticks {
+        return None;
+    }
+    let ratio = ((tick - offset_ticks) / visible_ticks).clamp(0.0, 1.0);
+    let max_left = (width_px - 1.0).max(0.0);
+    Some((ratio * width_px).min(max_left))
 }
 
 fn compute_visible_pitch_range(min_pitch: u8, max_pitch: u8, zoom_y: f32) -> f32 {
@@ -294,25 +320,39 @@ pub(super) fn spawn_piano_roll_page(
                             ))
                             .with_children(|parent| {
                                 let handle = Handle::default();
+                                let image_entity = parent
+                                    .spawn((
+                                        Node {
+                                            position_type: PositionType::Absolute,
+                                            left: Val::Px(0.0),
+                                            top: Val::Px(0.0),
+                                            width: Val::Percent(100.0),
+                                            height: Val::Percent(100.0),
+                                            ..default()
+                                        },
+                                        ImageNode {
+                                            image: handle.clone(),
+                                            image_mode: NodeImageMode::Stretch,
+                                            ..default()
+                                        },
+                                        PianoRollView {
+                                            track_index: usize::MAX,
+                                            image: handle,
+                                            last_size: (0, 0),
+                                        },
+                                    ))
+                                    .id();
                                 parent.spawn((
                                     Node {
                                         position_type: PositionType::Absolute,
                                         left: Val::Px(0.0),
                                         top: Val::Px(0.0),
-                                        width: Val::Percent(100.0),
+                                        width: Val::Px(2.0),
                                         height: Val::Percent(100.0),
                                         ..default()
                                     },
-                                    ImageNode {
-                                        image: handle.clone(),
-                                        image_mode: NodeImageMode::Stretch,
-                                        ..default()
-                                    },
-                                    PianoRollView {
-                                        track_index: usize::MAX,
-                                        image: handle,
-                                        last_size: (0, 0),
-                                    },
+                                    BackgroundColor(Color::srgb(1.0, 1.0, 1.0)),
+                                    PianoRollRuler { image_entity },
                                 ));
                             });
                     });
@@ -374,11 +414,54 @@ pub(super) fn update_piano_roll_view(
     }
 }
 
+pub(super) fn update_piano_roll_ruler(
+    ui_state: Res<UiState>,
+    audio_state: Res<AudioState>,
+    midi_tracks: Res<MidiTracks>,
+    tracks_focus: Res<TracksFocus>,
+    view_state: Res<PianoRollViewState>,
+    mut rulers: Query<(&mut Node, &PianoRollRuler)>,
+    computed_nodes: Query<&ComputedNode>,
+) {
+    if ui_state.page != UiPage::PianoRoll {
+        return;
+    }
+
+    let Some(tick) = audio_state.current_tick() else {
+        for (mut node, _) in &mut rulers {
+            node.display = Display::None;
+        }
+        return;
+    };
+    let Some(track) = midi_tracks.0.get(tracks_focus.index) else {
+        for (mut node, _) in &mut rulers {
+            node.display = Display::None;
+        }
+        return;
+    };
+
+    for (mut node, ruler) in &mut rulers {
+        let Ok(image_node) = computed_nodes.get(ruler.image_entity) else {
+            node.display = Display::None;
+            continue;
+        };
+        let Some(left_px) = ruler_left_px(tick, track.end_tick, &view_state, image_node.size.x)
+        else {
+            node.display = Display::None;
+            continue;
+        };
+        node.display = Display::Flex;
+        node.left = Val::Px(left_px);
+        node.height = Val::Px(image_node.size.y);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         build_empty_piano_roll_data, build_piano_roll_data, clamp_offset_pitch, clamp_offset_ticks,
         compute_visible_pitch_range, compute_visible_ticks, note_cell_band, pitch_to_row,
+        ruler_left_px,
     };
     use crate::state::{MidiTrackInfo, NoteSpan, PianoRollViewState};
 
@@ -446,5 +529,12 @@ mod tests {
         assert_eq!(note_cell_band(0, 60, 72, 60), (0, 0));
         assert_eq!(note_cell_band(10, 60, 69, 69), (0, 0));
         assert_eq!(note_cell_band(10, 60, 69, 60), (9, 9));
+    }
+
+    #[test]
+    fn ruler_left_px_within_view() {
+        let view = PianoRollViewState::default();
+        let left = ruler_left_px(50, 100, &view, 200.0);
+        assert!(left.is_some());
     }
 }
