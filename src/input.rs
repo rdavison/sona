@@ -42,19 +42,19 @@ impl Keybindings {
             _ => None,
         }
     }
-}
 
-pub fn load_keybindings(mut keybindings: ResMut<Keybindings>) {
-    println!("Loading keybindings...");
-    if let Ok(content) = std::fs::read_to_string("keybindings.toml") {
-        if let Ok(config) = toml::from_str::<Keybindings>(&content) {
-            *keybindings = config;
-            println!("Keybindings loaded successfully.");
+    pub fn load(mut keybindings: ResMut<Keybindings>) {
+        println!("Loading keybindings...");
+        if let Ok(content) = std::fs::read_to_string("keybindings.toml") {
+            if let Ok(config) = toml::from_str::<Keybindings>(&content) {
+                *keybindings = config;
+                println!("Keybindings loaded successfully.");
+            } else {
+                eprintln!("Failed to parse keybindings.toml");
+            }
         } else {
-            eprintln!("Failed to parse keybindings.toml");
+            eprintln!("Failed to read keybindings.toml");
         }
-    } else {
-        eprintln!("Failed to read keybindings.toml");
     }
 }
 
@@ -66,7 +66,7 @@ pub struct InputPlugin;
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Keybindings>()
-            .add_systems(Startup, load_keybindings)
+            .add_systems(Startup, Keybindings::load)
             .add_systems(
                 Update,
                 (keyboard_navigation, handle_input, poll_file_dialogs),
