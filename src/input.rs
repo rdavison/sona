@@ -242,6 +242,22 @@ fn handle_input(
                 track_popup.visible = true;
                 track_popup.track_index = tracks_focus.index.min(track_count.saturating_sub(1));
             }
+            if keyboard_input.just_pressed(KeyCode::Space) {
+                match playback_status.state {
+                    PlaybackState::Playing => {
+                        playback_status.state = PlaybackState::Paused;
+                        let _ = audio_tx.0.send(AudioCommand::Pause);
+                    }
+                    PlaybackState::Paused | PlaybackState::Stopped => {
+                        if let (Some(midi), Some(sf)) = (&midi_path.0, &soundfont_path.0) {
+                            playback_status.state = PlaybackState::Playing;
+                            let _ = audio_tx
+                                .0
+                                .send(AudioCommand::Play(midi.clone(), sf.clone()));
+                        }
+                    }
+                }
+            }
         }
         return;
     }
