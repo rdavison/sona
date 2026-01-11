@@ -4,10 +4,10 @@ use crate::state::{MidiTracks, PianoRollViewState, TracksFocus, UiPage, UiState}
 use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
 use bevy::prelude::{
-    default, AlignItems, Assets, BackgroundColor, BorderColor, Color, ColorToPacked, Commands,
-    Component, ComputedNode, DetectChanges, Display, FlexDirection, Font, Handle, Image, ImageNode,
-    JustifyContent, Node, NodeImageMode, Overflow, PositionType, Query, Res, ResMut, Text,
-    TextColor, TextFont, UiRect, Val,
+    default, AlignItems, Assets, BackgroundColor, BorderColor, Children, Color, ColorToPacked,
+    Commands, Component, ComputedNode, DetectChanges, Display, Entity, FlexDirection, Font, Handle,
+    Image, ImageNode, JustifyContent, Node, NodeImageMode, Overflow, PositionType, Query, Res,
+    ResMut, Text, TextColor, TextFont, UiRect, Val, With,
 };
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
@@ -18,10 +18,22 @@ pub(super) struct PianoRollView {
     last_size: (u32, u32),
 }
 
+const MAX_TEXTURE_SIZE: u32 = 16_384;
+
 #[derive(Component)]
 pub(super) struct PianoRollRuler {
     image_entity: bevy::prelude::Entity,
 }
+
+#[derive(Component)]
+pub(super) struct PianoRollLabelsRoot {
+    start: u8,
+    end: u8,
+    height: u32,
+}
+
+#[derive(Component)]
+pub(super) struct PianoRollLabel;
 
 fn piano_background_color() -> Color {
     Color::srgb(0.06, 0.06, 0.12)
@@ -29,6 +41,22 @@ fn piano_background_color() -> Color {
 
 fn piano_note_color() -> Color {
     Color::srgb(0.95, 0.9, 0.25)
+}
+
+fn note_name(pitch: u8) -> String {
+    const NAMES: [&str; 12] = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
+    let octave = (pitch / 12) as i32 - 1;
+    let name = NAMES[(pitch % 12) as usize];
+    format!("{name}{octave}")
+}
+
+fn pitch_list(start: u8, end: u8) -> Vec<u8> {
+    if end < start {
+        return Vec::new();
+    }
+    (start..=end).rev().collect()
 }
 
 fn note_cell_band(height: u32, pitch_start: u8, pitch_end: u8, pitch: u8) -> (u32, u32) {
@@ -97,6 +125,31 @@ fn clamp_offset_pitch(offset: f32, min_pitch: u8, max_pitch: u8, zoom_y: f32) ->
     offset.clamp(0.0, max_offset)
 }
 
+fn visible_pitch_bounds(
+    track: &crate::state::MidiTrackInfo,
+    view: &PianoRollViewState,
+) -> (u8, u8) {
+    let visible_pitch = compute_visible_pitch_range(track.min_pitch, track.max_pitch, view.zoom_y);
+    let offset_pitch = clamp_offset_pitch(
+        view.offset_pitch,
+        track.min_pitch,
+        track.max_pitch,
+        view.zoom_y,
+    );
+    let pitch_start = track.min_pitch as f32 + offset_pitch;
+    let pitch_end = pitch_start + visible_pitch;
+    let start_u8 = pitch_start.round().clamp(0.0, 127.0) as u8;
+    let end_u8 = pitch_end
+        .round()
+        .clamp(start_u8 as f32, track.max_pitch as f32) as u8;
+    (start_u8, end_u8)
+}
+
+fn should_rebuild_labels(root: &PianoRollLabelsRoot, start: u8, end: u8, height: u32) -> bool {
+    let height_diff = root.height.max(height) - root.height.min(height);
+    root.start != start || root.end != end || height_diff > 1
+}
+
 fn build_empty_piano_roll_data(width: u32, height: u32) -> Vec<u8> {
     let width = width.max(1);
     let height = height.max(1);
@@ -134,19 +187,9 @@ fn build_piano_roll_data(
 
     let visible_ticks = compute_visible_ticks(track.end_tick, view.zoom_x);
     let offset_ticks = clamp_offset_ticks(view.offset_ticks, track.end_tick, view.zoom_x);
-    let visible_pitch = compute_visible_pitch_range(track.min_pitch, track.max_pitch, view.zoom_y);
-    let offset_pitch = clamp_offset_pitch(
-        view.offset_pitch,
-        track.min_pitch,
-        track.max_pitch,
-        view.zoom_y,
-    );
-    let pitch_start = track.min_pitch as f32 + offset_pitch;
-    let pitch_end = pitch_start + visible_pitch;
-    let pitch_start_u8 = pitch_start.round().clamp(0.0, 127.0) as u8;
-    let pitch_end_u8 = pitch_end
-        .round()
-        .clamp(pitch_start_u8 as f32, track.max_pitch as f32) as u8;
+    let (pitch_start_u8, pitch_end_u8) = visible_pitch_bounds(track, view);
+    let pitch_start = pitch_start_u8 as f32;
+    let pitch_end = pitch_end_u8 as f32;
 
     let grid_color = piano_grid_color().to_srgba().to_u8_array();
     let grid_major = piano_grid_major_color().to_srgba().to_u8_array();
@@ -245,11 +288,7 @@ fn build_piano_roll_image(
     images.add(image)
 }
 
-pub(super) fn spawn_piano_roll_page(
-    commands: &mut Commands,
-    parent: bevy::prelude::Entity,
-    font: Handle<Font>,
-) {
+pub(super) fn spawn_piano_roll_page(commands: &mut Commands, parent: Entity, font: Handle<Font>) {
     commands.entity(parent).with_children(|parent| {
         parent
             .spawn((
@@ -311,7 +350,9 @@ pub(super) fn spawn_piano_roll_page(
                         parent
                             .spawn((
                                 Node {
+                                    flex_direction: FlexDirection::Row,
                                     flex_grow: 1.0,
+                                    align_items: AlignItems::Stretch,
                                     position_type: PositionType::Relative,
                                     overflow: Overflow::clip(),
                                     ..default()
@@ -319,41 +360,69 @@ pub(super) fn spawn_piano_roll_page(
                                 BackgroundColor(piano_background_color()),
                             ))
                             .with_children(|parent| {
-                                let handle = Handle::default();
-                                let image_entity = parent
-                                    .spawn((
-                                        Node {
-                                            position_type: PositionType::Absolute,
-                                            left: Val::Px(0.0),
-                                            top: Val::Px(0.0),
-                                            width: Val::Percent(100.0),
-                                            height: Val::Percent(100.0),
-                                            ..default()
-                                        },
-                                        ImageNode {
-                                            image: handle.clone(),
-                                            image_mode: NodeImageMode::Stretch,
-                                            ..default()
-                                        },
-                                        PianoRollView {
-                                            track_index: usize::MAX,
-                                            image: handle,
-                                            last_size: (0, 0),
-                                        },
-                                    ))
-                                    .id();
                                 parent.spawn((
                                     Node {
-                                        position_type: PositionType::Absolute,
-                                        left: Val::Px(0.0),
-                                        top: Val::Px(0.0),
-                                        width: Val::Px(2.0),
+                                        width: Val::Px(70.0),
                                         height: Val::Percent(100.0),
+                                        flex_direction: FlexDirection::Column,
+                                        overflow: Overflow::clip(),
+                                        flex_grow: 0.0,
+                                        flex_shrink: 0.0,
                                         ..default()
                                     },
-                                    BackgroundColor(Color::srgb(1.0, 1.0, 1.0)),
-                                    PianoRollRuler { image_entity },
+                                    BackgroundColor(Color::srgb(0.04, 0.04, 0.08)),
+                                    PianoRollLabelsRoot {
+                                        start: 0,
+                                        end: 0,
+                                        height: 0,
+                                    },
                                 ));
+
+                                parent
+                                    .spawn((Node {
+                                        flex_grow: 1.0,
+                                        height: Val::Percent(100.0),
+                                        position_type: PositionType::Relative,
+                                        overflow: Overflow::clip(),
+                                        ..default()
+                                    },))
+                                    .with_children(|parent| {
+                                        let handle = Handle::default();
+                                        let image_entity = parent
+                                            .spawn((
+                                                Node {
+                                                    position_type: PositionType::Absolute,
+                                                    left: Val::Px(0.0),
+                                                    top: Val::Px(0.0),
+                                                    width: Val::Percent(100.0),
+                                                    height: Val::Percent(100.0),
+                                                    ..default()
+                                                },
+                                                ImageNode {
+                                                    image: handle.clone(),
+                                                    image_mode: NodeImageMode::Stretch,
+                                                    ..default()
+                                                },
+                                                PianoRollView {
+                                                    track_index: usize::MAX,
+                                                    image: handle,
+                                                    last_size: (0, 0),
+                                                },
+                                            ))
+                                            .id();
+                                        parent.spawn((
+                                            Node {
+                                                position_type: PositionType::Absolute,
+                                                left: Val::Px(0.0),
+                                                top: Val::Px(0.0),
+                                                width: Val::Px(2.0),
+                                                height: Val::Percent(100.0),
+                                                ..default()
+                                            },
+                                            BackgroundColor(Color::srgb(1.0, 1.0, 1.0)),
+                                            PianoRollRuler { image_entity },
+                                        ));
+                                    });
                             });
                     });
             });
@@ -377,6 +446,8 @@ pub(super) fn update_piano_roll_view(
     for (node, mut view, mut image_node) in &mut views {
         let width = node.size.x.round().max(1.0) as u32;
         let height = node.size.y.round().max(1.0) as u32;
+        let width = width.min(MAX_TEXTURE_SIZE);
+        let height = height.min(MAX_TEXTURE_SIZE);
         let size_changed = view.last_size != (width, height);
         let track_changed = view.track_index != track_index;
         if !size_changed && !track_changed && !midi_tracks.is_changed() && !view_state.is_changed()
@@ -411,6 +482,108 @@ pub(super) fn update_piano_roll_view(
         if old_handle != view.image && images.get(old_handle.id()).is_some() {
             images.remove(old_handle.id());
         }
+    }
+}
+
+fn collect_descendants(entity: Entity, children_query: &Query<&Children>, out: &mut Vec<Entity>) {
+    let Ok(children) = children_query.get(entity) else {
+        return;
+    };
+    for child in children.iter() {
+        collect_descendants(*child, children_query, out);
+        out.push(*child);
+    }
+}
+
+pub(super) fn update_piano_roll_labels(
+    ui_state: Res<UiState>,
+    tracks_focus: Res<TracksFocus>,
+    midi_tracks: Res<MidiTracks>,
+    view_state: Res<PianoRollViewState>,
+    mut commands: Commands,
+    mut roots: Query<(Entity, &mut PianoRollLabelsRoot, &ComputedNode, &Children)>,
+    label_nodes: Query<(Entity, &Children), With<PianoRollLabel>>,
+    mut nodes: Query<&mut Node>,
+    mut texts: Query<&mut Text>,
+    children_query: Query<&Children>,
+    fonts: Res<super::UiFonts>,
+) {
+    if ui_state.page != UiPage::PianoRoll {
+        return;
+    }
+    let Some(track) = midi_tracks.0.get(tracks_focus.index) else {
+        return;
+    };
+    let (start_pitch, end_pitch) = visible_pitch_bounds(track, &view_state);
+
+    for (root_entity, mut root, node, root_children) in &mut roots {
+        let height = node.size.y.round().max(1.0) as u32;
+        let pitches = pitch_list(start_pitch, end_pitch);
+        if pitches.is_empty() {
+            continue;
+        }
+
+        let label_entities: Vec<Entity> = root_children
+            .iter()
+            .filter(|child| label_nodes.get(**child).is_ok())
+            .copied()
+            .collect();
+        let pitch_count = pitches.len() as f32;
+        let row_height = (height as f32 / pitch_count).max(1.0);
+        if !should_rebuild_labels(&root, start_pitch, end_pitch, height)
+            && label_entities.len() == pitches.len()
+        {
+            for (label_entity, pitch) in label_entities.iter().zip(pitches.iter()) {
+                if let Ok(mut node) = nodes.get_mut(*label_entity) {
+                    node.height = Val::Px(row_height);
+                }
+                if let Ok((_, children)) = label_nodes.get(*label_entity) {
+                    if let Some(text_entity) =
+                        children.iter().find(|child| texts.get_mut(**child).is_ok())
+                    {
+                        if let Ok(mut text) = texts.get_mut(*text_entity) {
+                            text.0 = note_name(*pitch);
+                        }
+                    }
+                }
+            }
+        } else {
+            let mut descendants = Vec::new();
+            collect_descendants(root_entity, &children_query, &mut descendants);
+            for entity in descendants {
+                commands.entity(entity).despawn();
+            }
+
+            commands.entity(root_entity).with_children(|parent| {
+                for pitch in pitches {
+                    parent
+                        .spawn((
+                            Node {
+                                height: Val::Px(row_height),
+                                padding: UiRect::left(Val::Px(6.0)),
+                                align_items: AlignItems::Center,
+                                ..default()
+                            },
+                            PianoRollLabel,
+                        ))
+                        .with_children(|parent| {
+                            parent.spawn((
+                                Text::new(note_name(pitch)),
+                                TextFont {
+                                    font: fonts.main.clone(),
+                                    font_size: 16.0,
+                                    ..default()
+                                },
+                                TextColor(Color::WHITE),
+                            ));
+                        });
+                }
+            });
+        }
+
+        root.start = start_pitch;
+        root.end = end_pitch;
+        root.height = height;
     }
 }
 
@@ -460,8 +633,9 @@ pub(super) fn update_piano_roll_ruler(
 mod tests {
     use super::{
         build_empty_piano_roll_data, build_piano_roll_data, clamp_offset_pitch, clamp_offset_ticks,
-        compute_visible_pitch_range, compute_visible_ticks, note_cell_band, pitch_to_row,
-        ruler_left_px,
+        compute_visible_pitch_range, compute_visible_ticks, note_cell_band, note_name, pitch_list,
+        pitch_to_row, ruler_left_px, should_rebuild_labels, visible_pitch_bounds,
+        PianoRollLabelsRoot,
     };
     use crate::state::{MidiTrackInfo, NoteSpan, PianoRollViewState};
 
@@ -532,9 +706,78 @@ mod tests {
     }
 
     #[test]
+    fn note_cell_band_full_height() {
+        assert_eq!(note_cell_band(10, 60, 60, 60), (0, 9));
+    }
+
+    #[test]
     fn ruler_left_px_within_view() {
         let view = PianoRollViewState::default();
         let left = ruler_left_px(50, 100, &view, 200.0);
         assert!(left.is_some());
+    }
+
+    #[test]
+    fn ruler_left_px_outside_view() {
+        let view = PianoRollViewState::default();
+        let left = ruler_left_px(200, 100, &view, 200.0);
+        assert!(left.is_none());
+    }
+
+    #[test]
+    fn note_name_formats() {
+        assert_eq!(note_name(60), "C4");
+        assert_eq!(note_name(61), "C#4");
+        assert_eq!(note_name(0), "C-1");
+    }
+
+    #[test]
+    fn pitch_list_reversed() {
+        assert_eq!(pitch_list(60, 62), vec![62, 61, 60]);
+        assert!(pitch_list(62, 60).is_empty());
+    }
+
+    #[test]
+    fn visible_pitch_bounds_clamps() {
+        let view = PianoRollViewState::default();
+        let track = MidiTrackInfo {
+            index: 0,
+            name: None,
+            event_count: 0,
+            end_tick: 1,
+            ticks_per_beat: 1,
+            note_count: 1,
+            min_pitch: 60,
+            max_pitch: 60,
+            channels: vec![0],
+            programs: vec![],
+            banks: vec![],
+            tempo_changes: 0,
+            time_signature: None,
+            key_signature: None,
+            note_spans: vec![NoteSpan {
+                pitch: 60,
+                start: 0,
+                end: 1,
+            }],
+            preview_width: 1,
+            preview_height: 1,
+            preview_cells: vec![0],
+        };
+        let (start, end) = visible_pitch_bounds(&track, &view);
+        assert_eq!(start, 60);
+        assert_eq!(end, 60);
+    }
+
+    #[test]
+    fn should_rebuild_labels_only_on_change() {
+        let root = PianoRollLabelsRoot {
+            start: 60,
+            end: 72,
+            height: 100,
+        };
+        assert!(!should_rebuild_labels(&root, 60, 72, 100));
+        assert!(should_rebuild_labels(&root, 61, 72, 100));
+        assert!(should_rebuild_labels(&root, 60, 72, 102));
     }
 }

@@ -46,6 +46,7 @@ impl Plugin for UiPlugin {
                     tracks::update_debug_overlay,
                     piano::update_piano_roll_view,
                     piano::update_piano_roll_ruler,
+                    piano::update_piano_roll_labels,
                 ),
             )
             .init_resource::<tracks::DebugOverlayState>()
