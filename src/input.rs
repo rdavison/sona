@@ -22,25 +22,25 @@ pub struct Keybindings {
 
 impl Keybindings {
     pub fn get_keycode(&self, action: &str) -> Option<KeyCode> {
-        self.bindings.get(action).and_then(|s| str_to_keycode(s))
+        self.bindings.get(action).and_then(|s| Self::of_str(s))
     }
-}
 
-fn str_to_keycode(s: &str) -> Option<KeyCode> {
-    match s.to_lowercase().as_str() {
-        "up" | "arrowup" => Some(KeyCode::ArrowUp),
-        "down" | "arrowdown" => Some(KeyCode::ArrowDown),
-        "left" | "arrowleft" => Some(KeyCode::ArrowLeft),
-        "right" | "arrowright" => Some(KeyCode::ArrowRight),
-        "enter" | "return" => Some(KeyCode::Enter),
-        "space" => Some(KeyCode::Space),
-        "tab" => Some(KeyCode::Tab),
-        "backspace" => Some(KeyCode::Backspace),
-        "escape" | "esc" => Some(KeyCode::Escape),
-        "p" => Some(KeyCode::KeyP),
-        "s" => Some(KeyCode::KeyS),
-        "t" => Some(KeyCode::KeyT),
-        _ => None,
+    fn of_str(s: &str) -> Option<KeyCode> {
+        match s.to_lowercase().as_str() {
+            "up" | "arrowup" => Some(KeyCode::ArrowUp),
+            "down" | "arrowdown" => Some(KeyCode::ArrowDown),
+            "left" | "arrowleft" => Some(KeyCode::ArrowLeft),
+            "right" | "arrowright" => Some(KeyCode::ArrowRight),
+            "enter" | "return" => Some(KeyCode::Enter),
+            "space" => Some(KeyCode::Space),
+            "tab" => Some(KeyCode::Tab),
+            "backspace" => Some(KeyCode::Backspace),
+            "escape" | "esc" => Some(KeyCode::Escape),
+            "p" => Some(KeyCode::KeyP),
+            "s" => Some(KeyCode::KeyS),
+            "t" => Some(KeyCode::KeyT),
+            _ => None,
+        }
     }
 }
 
