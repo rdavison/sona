@@ -73,7 +73,8 @@ pub struct InputPlugin;
 
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Keybindings>()
+        let _app = app
+            .init_resource::<Keybindings>()
             .add_systems(Startup, Keybindings::load_from_conf)
             .add_systems(
                 Update,
@@ -290,7 +291,7 @@ fn handle_input(
                         .add_filter("MIDI", &["mid", "midi"])
                         .pick_file()
                 });
-                commands.spawn(FileDialogTask(task, UiSelection::MidiFile));
+                let _ = commands.spawn(FileDialogTask(task, UiSelection::MidiFile));
             }
             UiSelection::SoundFont => {
                 let thread_pool = IoTaskPool::get();
@@ -299,7 +300,7 @@ fn handle_input(
                         .add_filter("SoundFont", &["sf2"])
                         .pick_file()
                 });
-                commands.spawn(FileDialogTask(task, UiSelection::SoundFont));
+                let _ = commands.spawn(FileDialogTask(task, UiSelection::SoundFont));
             }
             UiSelection::Play => match playback_status.state {
                 PlaybackState::Playing => {
@@ -453,7 +454,7 @@ fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
         match event.kind {
             TrackEventKind::Midi { channel, message } => {
                 let channel = channel.as_int() as u8;
-                channels.insert(channel);
+                let _inserted = channels.insert(channel);
                 match message {
                     midly::MidiMessage::NoteOn { key, vel } => {
                         if vel.as_int() > 0 {
@@ -476,7 +477,7 @@ fn parse_track(track: &[TrackEvent<'_>]) -> TrackParse {
                         }
                     }
                     midly::MidiMessage::ProgramChange { program } => {
-                        programs.insert(channel, program.as_int() as u8);
+                        let _prev = programs.insert(channel, program.as_int() as u8);
                     }
                     midly::MidiMessage::Controller { controller, value } => {
                         let ctrl = controller.as_int() as u8;

@@ -5,8 +5,8 @@ use bevy::prelude::{
 };
 
 pub(super) fn spawn_about_page(commands: &mut Commands, parent: Entity, font: Handle<Font>) {
-    commands.entity(parent).with_children(|parent| {
-        parent
+    let _ = commands.entity(parent).with_children(|parent| {
+        let _ = parent
             .spawn((
                 Node {
                     width: Val::Percent(100.0),
@@ -20,7 +20,7 @@ pub(super) fn spawn_about_page(commands: &mut Commands, parent: Entity, font: Ha
                 AboutPageRoot,
             ))
             .with_children(|parent| {
-                parent
+                let _ = parent
                     .spawn((
                         Node {
                             flex_direction: FlexDirection::Column,
@@ -32,7 +32,7 @@ pub(super) fn spawn_about_page(commands: &mut Commands, parent: Entity, font: Ha
                         BorderColor::all(Color::WHITE),
                     ))
                     .with_children(|parent| {
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Sona"),
                             TextFont {
                                 font: font.clone(),
@@ -41,7 +41,7 @@ pub(super) fn spawn_about_page(commands: &mut Commands, parent: Entity, font: Ha
                             },
                             TextColor(Color::WHITE),
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Retro MIDI player built with Bevy + OxiSynth."),
                             TextFont {
                                 font: font.clone(),
@@ -50,11 +50,11 @@ pub(super) fn spawn_about_page(commands: &mut Commands, parent: Entity, font: Ha
                             },
                             TextColor(Color::srgb(0.8, 0.8, 0.8)),
                         ));
-                        parent.spawn((Node {
+                        let _ = parent.spawn((Node {
                             height: Val::Px(20.0),
                             ..default()
                         },));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Controls:"),
                             TextFont {
                                 font: font.clone(),
@@ -63,7 +63,7 @@ pub(super) fn spawn_about_page(commands: &mut Commands, parent: Entity, font: Ha
                             },
                             TextColor(Color::WHITE),
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Arrow keys to move, Enter to select."),
                             TextFont {
                                 font: font.clone(),
@@ -72,7 +72,7 @@ pub(super) fn spawn_about_page(commands: &mut Commands, parent: Entity, font: Ha
                             },
                             TextColor(Color::srgb(0.8, 0.8, 0.8)),
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("P to play/pause, S to stop."),
                             TextFont {
                                 font: font.clone(),
@@ -81,11 +81,11 @@ pub(super) fn spawn_about_page(commands: &mut Commands, parent: Entity, font: Ha
                             },
                             TextColor(Color::srgb(0.8, 0.8, 0.8)),
                         ));
-                        parent.spawn((Node {
+                        let _ = parent.spawn((Node {
                             height: Val::Px(20.0),
                             ..default()
                         },));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Press ? to return to the splash page."),
                             TextFont {
                                 font: font.clone(),

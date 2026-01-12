@@ -14,3 +14,6 @@ oxisynth = "0.1.0"
 rfd = "0.17.1"
 serde = "1.0.228"
 toml = "0.9.11"
+
+[lints.rust]
+unused_results = "warn"

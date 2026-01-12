@@ -30,7 +30,8 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_ui)
+        let _app = app
+            .add_systems(Startup, setup_ui)
             .add_systems(
                 Update,
                 (
@@ -56,10 +57,10 @@ impl Plugin for UiPlugin {
 
 fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     println!("Setting up UI...");
-    commands.spawn(Camera2d::default());
+    let _ = commands.spawn(Camera2d::default());
 
     let font = asset_server.load("PixelifySans-Regular.ttf");
-    commands.insert_resource(UiFonts { main: font.clone() });
+    let _ = commands.insert_resource(UiFonts { main: font.clone() });
 
     let root = commands
         .spawn((

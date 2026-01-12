@@ -35,14 +35,11 @@ pub(super) struct PianoRollLabelsRoot {
 #[derive(Component)]
 pub(super) struct PianoRollLabel;
 
-fn piano_background_color() -> Color {
-    Color::srgb(0.06, 0.06, 0.12)
-}
+const PIANO_BACKGROUND_COLOR: Color = Color::srgb(0.06, 0.06, 0.12);
+const PIANO_NOTE_COLOR: Color = Color::srgb(0.95, 0.9, 0.25);
 
-fn piano_note_color() -> Color {
-    Color::srgb(0.95, 0.9, 0.25)
-}
-
+// TODO: instead of rendering pitch names, render a piano keyboard (white + black keys)
+// and just label the octaves
 fn note_name(pitch: u8) -> String {
     const NAMES: [&str; 12] = [
         "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
@@ -154,7 +151,7 @@ fn build_empty_piano_roll_data(width: u32, height: u32) -> Vec<u8> {
     let width = width.max(1);
     let height = height.max(1);
     let mut data = vec![0u8; (width * height * 4) as usize];
-    let bg = piano_background_color().to_srgba().to_u8_array();
+    let bg = PIANO_BACKGROUND_COLOR.to_srgba().to_u8_array();
     for pixel in data.chunks_exact_mut(4) {
         pixel.copy_from_slice(&bg);
     }
@@ -234,7 +231,7 @@ fn build_piano_roll_data(
         }
     }
 
-    let note_color = piano_note_color().to_srgba().to_u8_array();
+    let note_color = PIANO_NOTE_COLOR.to_srgba().to_u8_array();
     for span in &track.note_spans {
         if (span.end as f32) < offset_ticks || (span.start as f32) > offset_ticks + visible_ticks {
             continue;
@@ -289,8 +286,8 @@ fn build_piano_roll_image(
 }
 
 pub(super) fn spawn_piano_roll_page(commands: &mut Commands, parent: Entity, font: Handle<Font>) {
-    commands.entity(parent).with_children(|parent| {
-        parent
+    let _ = commands.entity(parent).with_children(|parent| {
+        let _ = parent
             .spawn((
                 Node {
                     width: Val::Percent(100.0),
@@ -304,7 +301,7 @@ pub(super) fn spawn_piano_roll_page(commands: &mut Commands, parent: Entity, fon
                 PianoRollPageRoot,
             ))
             .with_children(|parent| {
-                parent
+                let _ = parent
                     .spawn((
                         Node {
                             flex_direction: FlexDirection::Column,
@@ -320,7 +317,7 @@ pub(super) fn spawn_piano_roll_page(commands: &mut Commands, parent: Entity, fon
                         BorderColor::all(Color::WHITE),
                     ))
                     .with_children(|parent| {
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Piano Roll"),
                             TextFont {
                                 font: font.clone(),
@@ -329,7 +326,7 @@ pub(super) fn spawn_piano_roll_page(commands: &mut Commands, parent: Entity, fon
                             },
                             TextColor(Color::WHITE),
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Press Esc to return to the tracks page."),
                             TextFont {
                                 font: font.clone(),
@@ -338,7 +335,7 @@ pub(super) fn spawn_piano_roll_page(commands: &mut Commands, parent: Entity, fon
                             },
                             TextColor(Color::srgb(0.8, 0.8, 0.8)),
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Arrows pan, +/- zoom time, Shift+Up/Down zoom pitch."),
                             TextFont {
                                 font: font.clone(),
@@ -347,7 +344,7 @@ pub(super) fn spawn_piano_roll_page(commands: &mut Commands, parent: Entity, fon
                             },
                             TextColor(Color::srgb(0.7, 0.7, 0.8)),
                         ));
-                        parent
+                        let _ = parent
                             .spawn((
                                 Node {
                                     flex_direction: FlexDirection::Row,
@@ -357,10 +354,10 @@ pub(super) fn spawn_piano_roll_page(commands: &mut Commands, parent: Entity, fon
                                     overflow: Overflow::clip(),
                                     ..default()
                                 },
-                                BackgroundColor(piano_background_color()),
+                                BackgroundColor(PIANO_BACKGROUND_COLOR),
                             ))
                             .with_children(|parent| {
-                                parent.spawn((
+                                let _ = parent.spawn((
                                     Node {
                                         width: Val::Px(70.0),
                                         height: Val::Percent(100.0),
@@ -378,7 +375,7 @@ pub(super) fn spawn_piano_roll_page(commands: &mut Commands, parent: Entity, fon
                                     },
                                 ));
 
-                                parent
+                                let _ = parent
                                     .spawn((Node {
                                         flex_grow: 1.0,
                                         height: Val::Percent(100.0),
@@ -410,7 +407,7 @@ pub(super) fn spawn_piano_roll_page(commands: &mut Commands, parent: Entity, fon
                                                 },
                                             ))
                                             .id();
-                                        parent.spawn((
+                                        let _ = parent.spawn((
                                             Node {
                                                 position_type: PositionType::Absolute,
                                                 left: Val::Px(0.0),
@@ -480,7 +477,7 @@ pub(super) fn update_piano_roll_view(
         view.track_index = track_index;
         image_node.image = new_handle;
         if old_handle != view.image && images.get(old_handle.id()).is_some() {
-            images.remove(old_handle.id());
+            let _image = images.remove(old_handle.id());
         }
     }
 }
@@ -554,9 +551,9 @@ pub(super) fn update_piano_roll_labels(
                 commands.entity(entity).despawn();
             }
 
-            commands.entity(root_entity).with_children(|parent| {
+            let _ = commands.entity(root_entity).with_children(|parent| {
                 for pitch in pitches {
-                    parent
+                    let _ = parent
                         .spawn((
                             Node {
                                 height: Val::Px(row_height),
@@ -567,7 +564,7 @@ pub(super) fn update_piano_roll_labels(
                             PianoRollLabel,
                         ))
                         .with_children(|parent| {
-                            parent.spawn((
+                            let _ = parent.spawn((
                                 Text::new(note_name(pitch)),
                                 TextFont {
                                     font: fonts.main.clone(),

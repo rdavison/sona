@@ -129,7 +129,7 @@ impl Plugin for AudioPlugin {
         let last_event_tick_thread = Arc::clone(&last_event_tick);
         let next_event_sample_thread = Arc::clone(&next_event_sample);
         let next_event_tick_thread = Arc::clone(&next_event_tick);
-        thread::spawn(move || {
+        let _ = thread::spawn(move || {
             println!("Audio thread spawned.");
             audio_thread(
                 cmd_rx,
@@ -142,9 +142,9 @@ impl Plugin for AudioPlugin {
                 next_event_tick_thread,
             );
         });
-
-        app.insert_resource(AudioSender(cmd_tx));
-        app.insert_resource(audio_state);
+        let _ = app
+            .insert_resource(AudioSender(cmd_tx))
+            .insert_resource(audio_state);
     }
 }
 
@@ -467,7 +467,7 @@ fn audio_thread(
                         for (i, s) in frame.iter_mut().enumerate() {
                             *s = samples[i % 2];
                         }
-                        samples_played_clone_cb.fetch_add(1, Ordering::Relaxed);
+                        let _prev = samples_played_clone_cb.fetch_add(1, Ordering::Relaxed);
                     } else {
                         for s in frame.iter_mut() {
                             *s = 0.0;
@@ -502,8 +502,8 @@ fn audio_thread(
                             if let Ok(mut file) = std::fs::File::open(&sf_path) {
                                 if let Ok(font) = SoundFont::load(&mut file) {
                                     let mut s = synth.lock().unwrap();
-                                    s.add_font(font, true);
-                                    println!("Audio thread: SoundFont loaded.");
+                                    let id = s.add_font(font, true);
+                                    println!("Audio thread: SoundFont loaded ({:?})", id);
                                 }
                             }
                         }
@@ -575,7 +575,8 @@ fn hard_reset_synth(synth: &mut Synth, sample_rate: f32, soundfont_path: Option<
     if let Some(path) = soundfont_path {
         if let Ok(mut file) = std::fs::File::open(path) {
             if let Ok(font) = SoundFont::load(&mut file) {
-                synth.add_font(font, true);
+                let id = synth.add_font(font, true);
+                println!("SoundFont loaded ({:?})", id);
             }
         }
     }

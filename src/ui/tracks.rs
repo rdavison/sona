@@ -304,8 +304,8 @@ fn banks_label(banks: &[(u8, u8, u8)]) -> String {
 }
 
 pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: Handle<Font>) {
-    commands.entity(parent).with_children(|parent| {
-        parent
+    let _ = commands.entity(parent).with_children(|parent| {
+        let _ = parent
             .spawn((
                 Node {
                     width: Val::Percent(100.0),
@@ -319,7 +319,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                 TracksPageRoot,
             ))
             .with_children(|parent| {
-                parent
+                let _ = parent
                     .spawn((
                         Node {
                             position_type: PositionType::Absolute,
@@ -334,7 +334,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                         DebugOverlayRoot,
                     ))
                     .with_children(|parent| {
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Debug"),
                             TextFont {
                                 font: font.clone(),
@@ -345,7 +345,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                             DebugOverlayText,
                         ));
                     });
-                parent
+                let _ = parent
                     .spawn((
                         Node {
                             position_type: PositionType::Absolute,
@@ -365,7 +365,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                         TrackDetailsPopupRoot,
                     ))
                     .with_children(|parent| {
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Track Details"),
                             TextFont {
                                 font: font.clone(),
@@ -377,7 +377,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 field: TrackDetailsFieldKind::Title,
                             },
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Index:"),
                             TextFont {
                                 font: font.clone(),
@@ -389,7 +389,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 field: TrackDetailsFieldKind::Index,
                             },
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Name:"),
                             TextFont {
                                 font: font.clone(),
@@ -401,7 +401,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 field: TrackDetailsFieldKind::Name,
                             },
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Events:"),
                             TextFont {
                                 font: font.clone(),
@@ -413,7 +413,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 field: TrackDetailsFieldKind::Events,
                             },
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("End tick:"),
                             TextFont {
                                 font: font.clone(),
@@ -425,7 +425,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 field: TrackDetailsFieldKind::EndTick,
                             },
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Ticks per beat:"),
                             TextFont {
                                 font: font.clone(),
@@ -437,7 +437,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 field: TrackDetailsFieldKind::TicksPerBeat,
                             },
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Notes:"),
                             TextFont {
                                 font: font.clone(),
@@ -449,7 +449,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 field: TrackDetailsFieldKind::NoteCount,
                             },
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Pitch range:"),
                             TextFont {
                                 font: font.clone(),
@@ -461,7 +461,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 field: TrackDetailsFieldKind::PitchRange,
                             },
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Channels:"),
                             TextFont {
                                 font: font.clone(),
@@ -473,7 +473,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 field: TrackDetailsFieldKind::Channels,
                             },
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Programs:"),
                             TextFont {
                                 font: font.clone(),
@@ -485,7 +485,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 field: TrackDetailsFieldKind::Programs,
                             },
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Banks:"),
                             TextFont {
                                 font: font.clone(),
@@ -497,7 +497,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 field: TrackDetailsFieldKind::Banks,
                             },
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Tempo changes:"),
                             TextFont {
                                 font: font.clone(),
@@ -509,7 +509,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 field: TrackDetailsFieldKind::TempoChanges,
                             },
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Time signature:"),
                             TextFont {
                                 font: font.clone(),
@@ -521,7 +521,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 field: TrackDetailsFieldKind::TimeSignature,
                             },
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Key signature:"),
                             TextFont {
                                 font: font.clone(),
@@ -533,7 +533,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 field: TrackDetailsFieldKind::KeySignature,
                             },
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Press Esc to close."),
                             TextFont {
                                 font: font.clone(),
@@ -543,7 +543,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                             TextColor(Color::srgb(0.8, 0.8, 0.8)),
                         ));
                     });
-                parent
+                let _ = parent
                     .spawn((
                         Node {
                             flex_direction: FlexDirection::Column,
@@ -559,7 +559,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                         BorderColor::all(Color::WHITE),
                     ))
                     .with_children(|parent| {
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Tracks"),
                             TextFont {
                                 font: font.clone(),
@@ -568,7 +568,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                             },
                             TextColor(Color::WHITE),
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Press T to return to the splash page."),
                             TextFont {
                                 font: font.clone(),
@@ -577,7 +577,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                             },
                             TextColor(Color::srgb(0.8, 0.8, 0.8)),
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Press P to open the piano roll."),
                             TextFont {
                                 font: font.clone(),
@@ -586,24 +586,24 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                             },
                             TextColor(Color::srgb(0.8, 0.8, 0.8)),
                         ));
-                        parent.spawn((Node {
+                        let _ = parent.spawn((Node {
                             height: Val::Px(10.0),
                             ..default()
                         },));
-                        parent
+                        let _ = parent
                             .spawn((Node {
                                 flex_direction: FlexDirection::Row,
                                 column_gap: Val::Px(12.0),
                                 ..default()
                             },))
                             .with_children(|parent| {
-                                parent
+                                let _ = parent
                                     .spawn((Node {
                                         width: Val::Px(TRACK_COL_WIDTH),
                                         ..default()
                                     },))
                                     .with_children(|parent| {
-                                        parent.spawn((
+                                        let _ = parent.spawn((
                                             Text::new("Track"),
                                             TextFont {
                                                 font: font.clone(),
@@ -613,13 +613,13 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                             TextColor(Color::WHITE),
                                         ));
                                     });
-                                parent
+                                let _ = parent
                                     .spawn((Node {
                                         width: Val::Px(EVENT_COL_WIDTH),
                                         ..default()
                                     },))
                                     .with_children(|parent| {
-                                        parent.spawn((
+                                        let _ = parent.spawn((
                                             Text::new("Events"),
                                             TextFont {
                                                 font: font.clone(),
@@ -629,13 +629,13 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                             TextColor(Color::WHITE),
                                         ));
                                     });
-                                parent
+                                let _ = parent
                                     .spawn((Node {
                                         flex_grow: 1.0,
                                         ..default()
                                     },))
                                     .with_children(|parent| {
-                                        parent.spawn((
+                                        let _ = parent.spawn((
                                             Text::new("Preview"),
                                             TextFont {
                                                 font: font.clone(),
@@ -646,7 +646,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                         ));
                                     });
                             });
-                        parent
+                        let _ = parent
                             .spawn((
                                 Node {
                                     flex_direction: FlexDirection::Column,
@@ -657,7 +657,7 @@ pub(super) fn spawn_tracks_page(commands: &mut Commands, parent: Entity, font: H
                                 TracksListViewport,
                             ))
                             .with_children(|parent| {
-                                parent.spawn((
+                                let _ = parent.spawn((
                                     Node {
                                         flex_direction: FlexDirection::Column,
                                         row_gap: Val::Px(6.0),
@@ -706,9 +706,9 @@ pub(super) fn update_tracks_list(
         commands.entity(row).despawn();
     }
 
-    commands.entity(list_entity).with_children(|parent| {
+    let _ = commands.entity(list_entity).with_children(|parent| {
         if midi_tracks.0.is_empty() {
-            parent
+            let _ = parent
                 .spawn((
                     Node {
                         flex_direction: FlexDirection::Row,
@@ -718,7 +718,7 @@ pub(super) fn update_tracks_list(
                     TrackRow { index: 0 },
                 ))
                 .with_children(|parent| {
-                    parent.spawn((
+                    let _ = parent.spawn((
                         Text::new("No tracks loaded."),
                         TextFont {
                             font: font.clone(),
@@ -738,7 +738,7 @@ pub(super) fn update_tracks_list(
                 let label = format!("[{:02}] {}", track.index + 1, name);
                 let max_chars = max_label_chars(TRACK_COL_WIDTH, TRACK_LABEL_FONT_SIZE);
                 let label = ellipsize_text(&label, max_chars);
-                parent
+                let _ = parent
                     .spawn((
                         Node {
                             flex_direction: FlexDirection::Row,
@@ -749,13 +749,13 @@ pub(super) fn update_tracks_list(
                         TrackRow { index: row_index },
                     ))
                     .with_children(|parent| {
-                        parent
+                        let _ = parent
                             .spawn((Node {
                                 width: Val::Px(TRACK_COL_WIDTH),
                                 ..default()
                             },))
                             .with_children(|parent| {
-                                parent.spawn((
+                                let _ = parent.spawn((
                                     Text::new(label),
                                     TextFont {
                                         font: font.clone(),
@@ -765,13 +765,13 @@ pub(super) fn update_tracks_list(
                                     TextColor(Color::WHITE),
                                 ));
                             });
-                        parent
+                        let _ = parent
                             .spawn((Node {
                                 width: Val::Px(EVENT_COL_WIDTH),
                                 ..default()
                             },))
                             .with_children(|parent| {
-                                parent.spawn((
+                                let _ = parent.spawn((
                                     Text::new(track.event_count.to_string()),
                                     TextFont {
                                         font: font.clone(),
@@ -791,7 +791,7 @@ pub(super) fn update_tracks_list(
                             height_px,
                             &mut images,
                         );
-                        parent
+                        let _ = parent
                             .spawn((
                                 Node {
                                     width: Val::Percent(100.0),
@@ -827,7 +827,7 @@ pub(super) fn update_tracks_list(
                                         },
                                     ))
                                     .id();
-                                parent.spawn((
+                                let _ = parent.spawn((
                                     Node {
                                         position_type: PositionType::Absolute,
                                         left: Val::Px(0.0),
@@ -1096,7 +1096,7 @@ pub(super) fn update_track_previews(
         preview.last_size = (width_px, height_px);
         image_node.image = new_handle;
         if old_handle != preview.image {
-            images.remove(old_handle.id());
+            let _image = images.remove(old_handle.id());
         }
     }
 }

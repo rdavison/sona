@@ -27,8 +27,8 @@ pub(super) struct RewindButton;
 pub(super) struct PlaybackStatusText;
 
 pub(super) fn spawn_splash_page(commands: &mut Commands, parent: Entity, font: Handle<Font>) {
-    commands.entity(parent).with_children(|parent| {
-        parent
+    let _ = commands.entity(parent).with_children(|parent| {
+        let _ = parent
             .spawn((
                 Node {
                     width: Val::Percent(100.0),
@@ -42,7 +42,7 @@ pub(super) fn spawn_splash_page(commands: &mut Commands, parent: Entity, font: H
                 SplashPageRoot,
             ))
             .with_children(|parent| {
-                parent
+                let _ = parent
                     .spawn((
                         Node {
                             flex_direction: FlexDirection::Column,
@@ -54,7 +54,7 @@ pub(super) fn spawn_splash_page(commands: &mut Commands, parent: Entity, font: H
                         BorderColor::all(Color::WHITE),
                     ))
                     .with_children(|parent| {
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("Status: Stopped"),
                             TextFont {
                                 font: font.clone(),
@@ -65,12 +65,12 @@ pub(super) fn spawn_splash_page(commands: &mut Commands, parent: Entity, font: H
                             PlaybackStatusText,
                         ));
 
-                        parent.spawn((Node {
+                        let _ = parent.spawn((Node {
                             height: Val::Px(20.0),
                             ..default()
                         },));
 
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("MIDI File: [None]"),
                             TextFont {
                                 font: font.clone(),
@@ -80,7 +80,7 @@ pub(super) fn spawn_splash_page(commands: &mut Commands, parent: Entity, font: H
                             TextColor(Color::WHITE),
                             MidiFileText,
                         ));
-                        parent.spawn((
+                        let _ = parent.spawn((
                             Text::new("SoundFont: [None]"),
                             TextFont {
                                 font: font.clone(),
@@ -91,19 +91,19 @@ pub(super) fn spawn_splash_page(commands: &mut Commands, parent: Entity, font: H
                             SoundFontText,
                         ));
 
-                        parent.spawn((Node {
+                        let _ = parent.spawn((Node {
                             height: Val::Px(20.0),
                             ..default()
                         },));
 
-                        parent
+                        let _ = parent
                             .spawn((Node {
                                 flex_direction: FlexDirection::Row,
                                 column_gap: Val::Px(20.0),
                                 ..default()
                             },))
                             .with_children(|parent| {
-                                parent.spawn((
+                                let _ = parent.spawn((
                                     Text::new("[ Play ]"),
                                     TextFont {
                                         font: font.clone(),
@@ -113,7 +113,7 @@ pub(super) fn spawn_splash_page(commands: &mut Commands, parent: Entity, font: H
                                     TextColor(Color::WHITE),
                                     PlayButton,
                                 ));
-                                parent.spawn((
+                                let _ = parent.spawn((
                                     Text::new("[ Stop ]"),
                                     TextFont {
                                         font: font.clone(),
@@ -123,7 +123,7 @@ pub(super) fn spawn_splash_page(commands: &mut Commands, parent: Entity, font: H
                                     TextColor(Color::WHITE),
                                     StopButton,
                                 ));
-                                parent.spawn((
+                                let _ = parent.spawn((
                                     Text::new("[ Rewind ]"),
                                     TextFont {
                                         font: font.clone(),
